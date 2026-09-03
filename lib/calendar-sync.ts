@@ -1,6 +1,5 @@
-import { google } from "googleapis";
 import { prisma } from "@/lib/prisma";
-import { getGoogleOAuthClient } from "@/lib/google";
+import { getGoogleCalendarClientForUser } from "@/lib/google";
 
 export async function syncTaskToGoogleCalendar({
   taskId,
@@ -9,19 +8,8 @@ export async function syncTaskToGoogleCalendar({
   taskId: string;
   userId: string;
 }) {
-  const oauthAccount = await prisma.oAuthAccount.findFirst({
-    where: {
-      userId,
-      provider: "google",
-    },
-  });
-
-  if (!oauthAccount?.accessToken) {
-    return { success: false, reason: "NO_GOOGLE_INTEGRATION" };
-  }
-
   const task = await prisma.task.findUnique({
-    where: { id: taskId },
+    where: { id: taskId, assignees: { some: { userId } } },
     include: {
       creator: { select: { name: true, email: true } },
     },
@@ -31,13 +19,12 @@ export async function syncTaskToGoogleCalendar({
     return { success: false, reason: "CALENDAR_SYNC_DISABLED" };
   }
 
-  const oauth2Client = getGoogleOAuthClient();
-  oauth2Client.setCredentials({
-    access_token: oauthAccount.accessToken,
-    refresh_token: oauthAccount.refreshToken ?? undefined,
-  });
-
-  const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+  let calendar;
+  try {
+    calendar = await getGoogleCalendarClientForUser(userId);
+  } catch {
+    return { success: false, reason: "NO_GOOGLE_INTEGRATION" };
+  }
 
   const existingEvent = await prisma.calendarEvent.findFirst({
     where: {

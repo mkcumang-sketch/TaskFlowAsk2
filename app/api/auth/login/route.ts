@@ -1,57 +1,91 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { createSessionToken } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { createSessionToken, setSessionCookie } from "@/lib/auth";
+
+const DASHBOARD_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "OWNER", "MANAGER"]);
 
 export async function POST(request: Request) {
   try {
-    const { email, password } = await request.json();
+    const body = await request.json().catch(() => null);
 
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        { error: "Invalid JSON payload." },
+        { status: 400 }
+      );
     }
 
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
+
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: "Email and password are required." },
+        { status: 400 }
+      );
+    }
+
+    // Lookup user and attached role
     const user = await prisma.user.findUnique({
       where: { email },
       include: { role: true },
     });
 
     if (!user || !user.passwordHash) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid email or password." },
+        { status: 401 }
+      );
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    // Verify bcrypt password hash
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Invalid email or password." },
+        { status: 401 }
+      );
     }
 
-    const isBoss =
-      user.role?.name === "SUPER_ADMIN" ||
-      user.role?.name === "ADMIN" ||
-      user.role?.name === "OWNER" ||
-      user.role?.name === "MANAGER";
+    // Normalize role name
+    const rawRoleName = user.role?.name || "MEMBER";
+    const role = rawRoleName.toUpperCase();
 
-    const redirectTo = isBoss ? "/dashboard" : "/my-day";
-
+    // Create session token
     const token = await createSessionToken({
       id: user.id,
       email: user.email,
-      name: user.name || "",
+      name: user.name ?? "",
       organizationId: user.organizationId,
-      role: user.role?.name || "MEMBER",
+      role: rawRoleName,
     });
 
-    const response = NextResponse.json({ success: true, redirectTo });
-    response.cookies.set("taskflow_session", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
+    // Check if role qualifies for Admin Dashboard
+    const isDashboardUser = DASHBOARD_ROLES.has(role);
+    const redirectTo = isDashboardUser ? "/dashboard" : "/my-day";
+
+    const response = NextResponse.json({
+      success: true,
+      redirectTo,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: rawRoleName,
+      },
     });
 
-    return response;
+    // Handle setSessionCookie safely whether it is sync or async
+    const cookieResult = await Promise.resolve(setSessionCookie(response, token));
+    
+    // Fallback: If setSessionCookie returned a modified response object, use it; otherwise use response
+    return cookieResult instanceof NextResponse ? cookieResult : response;
   } catch (error) {
-    console.error("Login error:", error);
-    return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
+    console.error("Login API Error:", error);
+    return NextResponse.json(
+      { error: "Internal server error. Please try again." },
+      { status: 500 }
+    );
   }
 }

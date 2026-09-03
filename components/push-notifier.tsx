@@ -7,12 +7,13 @@ export function PushNotifier() {
 
   useEffect(() => {
     if ("Notification" in window) {
-      setPermission(Notification.permission);
+      const timer = window.setTimeout(() => setPermission(Notification.permission), 0);
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js").catch((err) => {
           console.error("Service worker registration failed:", err);
         });
       }
+      return () => window.clearTimeout(timer);
     }
   }, []);
 
@@ -26,6 +27,11 @@ export function PushNotifier() {
     setPermission(res);
 
     if (res === "granted" && "serviceWorker" in navigator) {
+      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey) {
+        alert("Push notifications are not configured.");
+        return;
+      }
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
 
@@ -33,7 +39,7 @@ export function PushNotifier() {
         // Standard lightweight push registration
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U",
+          applicationServerKey: vapidPublicKey,
         });
       }
 

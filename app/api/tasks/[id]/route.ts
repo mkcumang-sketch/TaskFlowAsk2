@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { syncTaskToGoogleCalendar } from "@/lib/calendar-sync";
 
@@ -51,10 +51,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
   }
 
+  if (task.creatorId !== session.id && !hasPermission(session.role, "edit_task")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const allowedFields = ["priority", "dueAt", "startAt", "description"] as const;
+  if (Object.keys(body).some((key) => !allowedFields.includes(key as (typeof allowedFields)[number]))) {
+    return NextResponse.json(
+      { error: "Only priority, dueAt, startAt, and description can be updated here. Use transitions for status." },
+      { status: 400 },
+    );
+  }
+
   const updatedTask = await prisma.task.update({
     where: { id: taskId },
     data: {
-      status: body.status ?? task.status,
       priority: body.priority ?? task.priority,
       dueAt: body.dueAt ? new Date(body.dueAt) : task.dueAt,
       startAt: body.startAt ? new Date(body.startAt) : task.startAt,

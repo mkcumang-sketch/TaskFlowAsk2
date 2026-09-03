@@ -8,13 +8,7 @@ export function GoogleCalendarButton() {
   const handleConnect = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/google");
-      const data = await res.json();
-      if (data.authUrl) {
-        window.location.href = data.authUrl;
-      } else {
-        alert("Google Calendar integration is not configured in .env");
-      }
+      window.location.replace("/api/auth/google");
     } catch {
       alert("Failed to connect Google Calendar.");
     } finally {

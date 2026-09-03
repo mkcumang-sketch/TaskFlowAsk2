@@ -29,9 +29,12 @@ export function NotificationBell() {
   };
 
   useEffect(() => {
-    fetchNotifications();
+    const initialLoad = window.setTimeout(fetchNotifications, 0);
     const interval = setInterval(fetchNotifications, 20000);
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialLoad);
+      clearInterval(interval);
+    };
   }, []);
 
   const unreadCount = notifications.filter((n) => !n.readAt).length;

@@ -1,8 +1,8 @@
 import { AppShell } from "@/components/app-shell";
-import { requireUser } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 
 export default async function AdminPage() {
-  await requireUser();
+  await requirePermission("manage_organization");
 
   return (
     <AppShell title="Admin" subtitle="Platform health, failed jobs, integrations, and security posture.">

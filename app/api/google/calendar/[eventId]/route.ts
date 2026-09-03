@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { getGoogleCalendarClientForUser } from "@/lib/google";
 import { prisma } from "@/lib/prisma";
 
@@ -37,6 +37,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ even
   }
 
   if (existingEvent.task.organizationId !== session.organizationId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (existingEvent.task.creatorId !== session.id && !hasPermission(session.role, "edit_task")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -98,6 +101,9 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   }
 
   if (existingEvent.task.organizationId !== session.organizationId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (existingEvent.task.creatorId !== session.id && !hasPermission(session.role, "edit_task")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

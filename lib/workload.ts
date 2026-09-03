@@ -7,7 +7,13 @@ export interface WorkloadSummary {
   reviewCount: number;
 }
 
-export function calculateWorkload(tasks: any[]): WorkloadSummary {
+type WorkloadTask = {
+  status: string;
+  estimatedMinutes?: number | null;
+  dueAt?: Date | string | null;
+};
+
+export function calculateWorkload(tasks: WorkloadTask[]): WorkloadSummary {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);

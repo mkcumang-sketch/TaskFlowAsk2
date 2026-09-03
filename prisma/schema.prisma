@@ -1,10 +1,10 @@
-generator client {
-  provider = "prisma-client-js"
+datasource db {
+  provider = "postgresql" // or "sqlite" depending on your database
+  url      = env("DATABASE_URL")
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+generator client {
+  provider = "prisma-client-js"
 }
 
 model Organization {
@@ -76,6 +76,7 @@ model User {
   calendarIntegrations CalendarIntegration[]
   oauthAccounts        OAuthAccount[]
   sessions             Session[]
+  pushSubscriptions    PushSubscription[]
   emailNotifications   EmailNotification[]
   commentMentions      CommentMention[]      @relation("MentionedUser")
   attachments          Attachment[]
@@ -359,6 +360,19 @@ model ActivityLog {
   createdAt DateTime @default(now())
 
   @@index([taskId, createdAt])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model UserPreference {

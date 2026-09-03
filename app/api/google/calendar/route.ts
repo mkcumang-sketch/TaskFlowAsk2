@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { getGoogleCalendarClientForUser } from "@/lib/google";
 import { prisma } from "@/lib/prisma";
 
@@ -65,6 +65,9 @@ export async function POST(request: Request) {
 
   if (!task) {
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  }
+  if (task.creatorId !== session.id && !hasPermission(session.role, "edit_task")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const existingEvent = await prisma.calendarEvent.findUnique({

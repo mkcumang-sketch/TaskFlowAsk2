@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
@@ -9,6 +9,9 @@ export async function POST(request: Request) {
   // Sirf Boss/Admin allowed hai
   if (!session || !session.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasPermission(session.role, "manage_users")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { name, email, password } = await request.json();
@@ -29,15 +32,11 @@ export async function POST(request: Request) {
   const passwordHash = await bcrypt.hash(password, 10);
 
   // Default MEMBER role dhundo ya create karo
-  let memberRole = await prisma.role.findFirst({
-    where: { name: "MEMBER" },
+  const memberRole = await prisma.role.upsert({
+    where: { name: "EMPLOYEE" },
+    update: {},
+    create: { name: "EMPLOYEE" },
   });
-
-  if (!memberRole) {
-    memberRole = await prisma.role.create({
-      data: { name: "MEMBER" },
-    });
-  }
 
   const newAgent = await prisma.user.create({
     data: {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { taskSchema } from "@/lib/validations";
 import { sendTaskNotificationEmail } from "@/lib/email-service";
@@ -12,7 +12,6 @@ export async function GET() {
   if (!session || !session.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
   const organizationId = session.organizationId;
 
   const tasks = await prisma.task.findMany({
@@ -36,6 +35,9 @@ export async function POST(request: Request) {
 
   if (!session || !session.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!hasPermission(session.role, "create_task")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const organizationId = session.organizationId;

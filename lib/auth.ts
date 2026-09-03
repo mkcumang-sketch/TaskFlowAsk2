@@ -11,7 +11,7 @@ export type SessionUser = {
   role: string | null;
 };
 
-const SESSION_COOKIE = "taskflow-session";
+export const SESSION_COOKIE = "taskflow_session";
 const JWT_SECRET = process.env.AUTH_SECRET || process.env.JWT_SECRET || "dev-secret";
 
 const PERMISSIONS_BY_ROLE: Record<string, string[]> = {
@@ -73,6 +73,10 @@ export function hasPermission(role: string | null | undefined, permission: strin
   return rolePermissions.includes("*") || rolePermissions.includes(permission);
 }
 
+export function isManagementRole(role: string | null | undefined) {
+  return role === "SUPER_ADMIN" || role === "OWNER" || role === "ADMIN" || role === "MANAGER";
+}
+
 export async function requireUser() {
   const user = await getSession();
 
@@ -104,13 +108,13 @@ export async function requirePermission(permission: string) {
 }
 
 export async function setSessionCookie(response: Response, token: string) {
-  const cookieHeader = `taskflow-session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`;
+  const cookieHeader = `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 7}`;
   response.headers.set("Set-Cookie", cookieHeader);
   return response;
 }
 
 export async function clearSessionCookie(response: Response) {
-  const cookieHeader = "taskflow-session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+  const cookieHeader = `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
   response.headers.set("Set-Cookie", cookieHeader);
   return response;
 }

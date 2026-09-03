@@ -11,16 +11,18 @@ export async function POST(request: Request) {
 
   const { subscription } = await request.json();
 
-  if (!subscription || !subscription.endpoint) {
+  if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
     return NextResponse.json({ error: "Invalid subscription payload" }, { status: 400 });
   }
 
-  // Activity log ya user meta me push subscription store karo
-  await prisma.activityLog.create({
-    data: {
+  await prisma.pushSubscription.upsert({
+    where: { endpoint: subscription.endpoint },
+    update: { userId: session.id, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth },
+    create: {
       userId: session.id,
-      action: "PUSH_SUBSCRIPTION_REGISTERED",
-      details: JSON.stringify(subscription),
+      endpoint: subscription.endpoint,
+      p256dh: subscription.keys.p256dh,
+      auth: subscription.keys.auth,
     },
   });
 

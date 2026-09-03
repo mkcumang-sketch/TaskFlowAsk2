@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { getSession, hasPermission, isManagementRole } from "@/lib/auth";
 import { canTransition, TaskState } from "@/lib/task-workflow";
 import { sendTaskNotificationEmail } from "@/lib/email-service";
 
@@ -13,18 +13,31 @@ export async function POST(
   if (!session || !session.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const organizationId = session.organizationId;
+  if (!organizationId) {
+    return NextResponse.json({ error: "Organization membership required." }, { status: 403 });
+  }
 
   const taskId = (await params).id;
   const body = await request.json();
   const { nextStatus, note, proofUrl, rejectionReason } = body;
 
   const task = await prisma.task.findUnique({
-    where: { id: taskId },
+    where: { id: taskId, organizationId },
     include: { assignees: true },
   });
 
   if (!task) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
+  }
+
+  const isAssignee = task.assignees.some((assignee) => assignee.userId === session.id);
+  const isManager = isManagementRole(session.role);
+  const canManageTasks = hasPermission(session.role, "edit_task") || hasPermission(session.role, "approve_task");
+  const assigneeTransition = ["SEEN", "ACCEPTED", "IN_PROGRESS", "WAITING", "BLOCKED", "REVIEW", "ON_HOLD", "NEEDS_CLARIFICATION"].includes(nextStatus);
+  const managementTransition = ["ASSIGNED", "APPROVED", "REJECTED", "CANCELLED"].includes(nextStatus);
+  if ((!isAssignee && assigneeTransition && !canManageTasks) || (managementTransition && !isManager && !canManageTasks)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (!canTransition(task.status as TaskState, nextStatus as TaskState)) {
