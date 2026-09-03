@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { syncTaskToGoogleCalendar } from "@/lib/calendar-sync";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -53,9 +54,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const updatedTask = await prisma.task.update({
     where: { id: taskId },
     data: {
-      status: body.status,
-      priority: body.priority,
+      status: body.status ?? task.status,
+      priority: body.priority ?? task.priority,
       dueAt: body.dueAt ? new Date(body.dueAt) : task.dueAt,
+      startAt: body.startAt ? new Date(body.startAt) : task.startAt,
       description: body.description ?? task.description,
     },
     include: {
@@ -64,6 +66,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       comments: true,
     },
   });
+
+  // Calendar sync: Status, startAt, ya dueAt update hone par calendar auto-sync
+  if (updatedTask.calendarSyncEnabled && updatedTask.assignees.length > 0) {
+    for (const item of updatedTask.assignees) {
+      syncTaskToGoogleCalendar({
+        taskId: updatedTask.id,
+        userId: item.userId,
+      }).catch((err) => console.error("Async calendar update failed:", err));
+    }
+  }
 
   return NextResponse.json(updatedTask);
 }

@@ -1,55 +1,57 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { createSessionToken, setSessionCookie } from "@/lib/auth";
-import { loginSchema } from "@/lib/validations";
+import bcrypt from "bcryptjs";
+import { createSessionToken } from "@/lib/auth";
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const parsed = loginSchema.safeParse(body);
+  try {
+    const { email, password } = await request.json();
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid login request." }, { status: 400 });
-  }
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+    }
 
-  const { email, password } = parsed.data;
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { role: true },
+    });
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: {
-      role: true,
-      organization: true,
-    },
-  });
+    if (!user || !user.passwordHash) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
 
-  if (!user || !user.passwordHash) {
-    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
-  }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
 
-  const validPassword = await bcrypt.compare(password, user.passwordHash);
+    const isBoss =
+      user.role?.name === "SUPER_ADMIN" ||
+      user.role?.name === "ADMIN" ||
+      user.role?.name === "OWNER" ||
+      user.role?.name === "MANAGER";
 
-  if (!validPassword) {
-    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
-  }
+    const redirectTo = isBoss ? "/dashboard" : "/my-day";
 
-  const token = await createSessionToken({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    organizationId: user.organizationId,
-    role: user.role?.name ?? null,
-  });
-
-  const response = NextResponse.json({
-    success: true,
-    user: {
+    const token = await createSessionToken({
       id: user.id,
-      name: user.name,
       email: user.email,
+      name: user.name || "",
       organizationId: user.organizationId,
-      role: user.role?.name ?? null,
-    },
-  });
+      role: user.role?.name || "MEMBER",
+    });
 
-  return setSessionCookie(response, token);
+    const response = NextResponse.json({ success: true, redirectTo });
+    response.cookies.set("taskflow_session", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Login error:", error);
+    return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
+  }
 }

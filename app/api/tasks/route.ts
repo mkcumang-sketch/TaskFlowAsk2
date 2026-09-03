@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { taskSchema } from "@/lib/validations";
+import { sendTaskNotificationEmail } from "@/lib/email-service";
+import { syncTaskToGoogleCalendar } from "@/lib/calendar-sync";
+import { sendPushNotificationToUser } from "@/lib/push-service";
 
 export async function GET() {
   const session = await getSession();
@@ -10,12 +13,17 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const organizationId = session.organizationId;
+
   const tasks = await prisma.task.findMany({
-    where: { organizationId: session.organizationId },
+    where: { organizationId },
     include: {
       creator: true,
       assignees: { include: { user: true } },
       comments: true,
+      checklistItems: true,
+      subtasks: true,
+      taskTags: { include: { tag: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -30,59 +38,171 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const organizationId = session.organizationId;
   const body = await request.json();
   const parsed = taskSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid task payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message || "Invalid task payload" },
+      { status: 400 }
+    );
   }
 
-  const { title, description, assigneeEmail, dueAt, priority, taskStatus, calendarSyncEnabled, emailEnabled } = parsed.data;
+  const payload = parsed.data;
+  const effectiveStatus = payload.status ?? payload.taskStatus ?? "ASSIGNED";
+  const assigneeEmails = Array.from(
+    new Set(
+      [...(payload.assigneeEmails ?? []), ...(payload.assigneeEmail ? [payload.assigneeEmail] : [])].filter(Boolean)
+    )
+  );
 
-  let assigneeUser = null;
-
-  if (assigneeEmail) {
-    assigneeUser = await prisma.user.findFirst({
-      where: {
-        email: assigneeEmail,
-        organizationId: session.organizationId,
-      },
-    });
-  }
+  const assigneeUsers = assigneeEmails.length
+    ? await prisma.user.findMany({
+        where: {
+          organizationId,
+          email: { in: assigneeEmails },
+        },
+      })
+    : [];
 
   const task = await prisma.task.create({
     data: {
-      title,
-      description: description || "",
-      status: taskStatus,
-      priority,
-      organizationId: session.organizationId,
+      title: payload.title,
+      description: payload.description || "",
+      status: effectiveStatus,
+      priority: payload.priority,
+      organizationId,
       creatorId: session.id,
-      assigneeEmail: assigneeUser?.email || assigneeEmail || null,
-      dueAt: dueAt ? new Date(dueAt) : null,
-      calendarSyncEnabled: calendarSyncEnabled || false,
-      emailEnabled: emailEnabled ?? true,
-      assignees: assigneeUser ? {
-        create: { userId: assigneeUser.id },
-      } : undefined,
+      assigneeEmail: assigneeUsers[0]?.email || assigneeEmails[0] || null,
+      dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
+      startAt: payload.startAt ? new Date(payload.startAt) : null,
+      estimatedMinutes: payload.estimatedMinutes ?? null,
+      recurrence: payload.recurrence && payload.recurrence !== "NONE" ? payload.recurrence : null,
+      completionProofType:
+        payload.completionProofType && payload.completionProofType !== "NONE"
+          ? payload.completionProofType
+          : null,
+      approvalRequired: payload.approvalRequired ?? false,
+      calendarSyncEnabled: payload.calendarSyncEnabled ?? false,
+      emailEnabled: payload.emailEnabled ?? true,
+      departmentId: payload.departmentId ?? null,
+      teamId: payload.teamId ?? null,
+      projectId: payload.projectId ?? null,
+      assignees: {
+        create: assigneeUsers.map((user) => ({ userId: user.id })),
+      },
+      checklistItems: {
+        create: (payload.checklist ?? []).map((item) => ({ text: item.text })),
+      },
+      subtasks: {
+        create: (payload.subtasks ?? []).map((subtask) => ({
+          title: subtask.title,
+          description: subtask.description || null,
+        })),
+      },
     },
     include: {
       creator: true,
       assignees: { include: { user: true } },
       comments: true,
+      checklistItems: true,
+      subtasks: true,
     },
   });
 
-  if (assigneeUser) {
+  if ((payload.tags ?? []).length > 0) {
+    const createdTags = await Promise.all(
+      (payload.tags ?? []).map(async (tagName) =>
+        prisma.tag.upsert({
+          where: {
+            organizationId_name: {
+              organizationId,
+              name: tagName,
+            },
+          },
+          update: {},
+          create: {
+            organizationId,
+            name: tagName,
+          },
+        })
+      )
+    );
+
+    await prisma.taskTag.createMany({
+      data: createdTags.map((tag) => ({ taskId: task.id, tagId: tag.id })),
+    });
+  }
+
+  if ((payload.dependencies ?? []).length > 0) {
+    const dependencyTasks = await prisma.task.findMany({
+      where: {
+        id: { in: payload.dependencies },
+        organizationId,
+      },
+      select: { id: true },
+    });
+
+    await prisma.taskDependency.createMany({
+      data: dependencyTasks.map((dependencyTask) => ({
+        taskId: task.id,
+        dependsOnId: dependencyTask.id,
+      })),
+    });
+  }
+
+  for (const assignee of assigneeUsers) {
+    // In-app Notification
     await prisma.notification.create({
       data: {
         type: "TASK_ASSIGNED",
-        content: `Task assigned: ${title}`,
-        userId: assigneeUser.id,
+        content: `Task assigned: ${task.title}`,
+        userId: assignee.id,
         taskId: task.id,
-        organizationId: session.organizationId,
+        organizationId,
+        link: `/tasks/${task.id}`,
       },
     });
+
+    // Audit Log
+    await prisma.activityLog.create({
+      data: {
+        userId: session.id,
+        taskId: task.id,
+        action: "TASK_ASSIGNED",
+        details: `Assigned to ${assignee.name || assignee.email}`,
+      },
+    });
+
+    // Email Dispatch
+    if (task.emailEnabled && assignee.email) {
+      sendTaskNotificationEmail({
+        to: assignee.email,
+        recipientName: assignee.name || "Team Member",
+        taskTitle: task.title,
+        taskId: task.id,
+        priority: task.priority,
+        dueAt: task.dueAt,
+        actorName: session.name || "Manager",
+        type: "TASK_ASSIGNED",
+      }).catch((err) => console.error("Async assignment email error:", err));
+    }
+
+    // Google Calendar Sync
+    if (task.calendarSyncEnabled) {
+      syncTaskToGoogleCalendar({
+        taskId: task.id,
+        userId: assignee.id,
+      }).catch((err) => console.error("Async calendar sync error:", err));
+    }
+
+    // Web / Mobile Push Notification
+    sendPushNotificationToUser(assignee.id, {
+      title: `New Task: ${task.title}`,
+      body: `Priority: ${task.priority} | Due: ${task.dueAt ? new Date(task.dueAt).toLocaleDateString() : "No deadline"}`,
+      url: `/tasks/${task.id}`,
+    }).catch((err) => console.error("Async push error:", err));
   }
 
   await prisma.activityLog.create({
@@ -90,7 +210,7 @@ export async function POST(request: Request) {
       userId: session.id,
       taskId: task.id,
       action: "TASK_CREATED",
-      details: `Task created and assigned to ${assigneeUser?.name || "unassigned"}`,
+      details: `Task created with status ${effectiveStatus}, priority ${payload.priority}`,
     },
   });
 

@@ -5,23 +5,30 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(value: Date | string | null | undefined) {
-  if (!value) return "No date";
+export function formatDateTime(date: Date | string | number | null | undefined): string {
+  if (!date) return "No deadline";
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
-export function formatDateTime(value: Date | string | null | undefined) {
-  if (!value) return "No date";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "Invalid date";
 
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+    hour12: true,
+  }).format(d);
+}
+
+export function formatDate(date: Date | string | number | null | undefined): string {
+  if (!date) return "No date";
+
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "Invalid date";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(d);
 }

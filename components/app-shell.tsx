@@ -1,85 +1,96 @@
+"use client";
+
 import Link from "next/link";
-import { Bell, CalendarDays, FolderKanban, LayoutDashboard, ListTodo, Settings, Users, FolderOpen, BarChart3, ShieldCheck, Inbox } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { usePathname } from "next/navigation";
+import { NotificationBell } from "@/components/notification-bell";
 
-const navigation = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/my-day", label: "My Day", icon: ListTodo },
-  { href: "/tasks", label: "Tasks", icon: FolderKanban },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/projects", label: "Projects", icon: FolderOpen },
-  { href: "/team", label: "Team", icon: Users },
-  { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/admin", label: "Admin", icon: ShieldCheck },
-];
-
-export function AppShell({
-  title,
-  subtitle,
-  children,
-}: {
+interface AppShellProps {
   title: string;
   subtitle?: string;
+  userRole?: string;
   children: React.ReactNode;
-}) {
+}
+
+export function AppShell({ title, subtitle, userRole = "MEMBER", children }: AppShellProps) {
+  const pathname = usePathname();
+
+  const isBoss =
+    userRole === "SUPER_ADMIN" ||
+    userRole === "ADMIN" ||
+    userRole === "OWNER" ||
+    userRole === "MANAGER";
+
+  const navItems = isBoss
+    ? [
+        { label: "Dashboard", href: "/dashboard" },
+        { label: "Tasks", href: "/tasks" },
+        { label: "Kanban", href: "/tasks/kanban" },
+        { label: "Team", href: "/team" },
+        { label: "Reports", href: "/reports" },
+      ]
+    : [
+        { label: "My Day", href: "/my-day" },
+        { label: "My Tasks", href: "/tasks" },
+      ];
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  };
+
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="mx-auto flex max-w-[1600px] gap-6 px-4 py-6 xl:px-8">
-        <aside className="hidden w-72 shrink-0 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm lg:block">
-          <div className="mb-8 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white">T</div>
-            <div>
-              <p className="text-lg font-bold">TASKFLOW</p>
-              <p className="text-xs text-slate-500">Accountability OS</p>
-            </div>
+    <div className="min-h-screen bg-slate-50">
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-8">
+            <Link href={isBoss ? "/dashboard" : "/my-day"} className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-sm font-black text-white">
+                T
+              </span>
+              <span className="text-base font-bold text-slate-900 tracking-tight">TaskFlow</span>
+            </Link>
+
+            <nav className="hidden sm:flex items-center gap-1">
+              {navItems.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      active
+                        ? "bg-slate-900 text-white"
+                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
 
-          <nav className="space-y-1">
-            {navigation.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+            <button
+              onClick={handleLogout}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </header>
 
-        <main className="flex-1 space-y-6">
-          <header className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-            <p className="text-sm font-medium uppercase tracking-[0.18em] text-slate-400">TaskFlow</p>
-            <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-900">{title}</h1>
-                {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
-              </div>
-              <div className="flex items-center gap-3">
-                <Link href="/tasks" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
-                  New task
-                </Link>
-                <form action="/api/auth/logout" method="POST">
-                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                    Log out
-                  </button>
-                </form>
-              </div>
-            </div>
-          </header>
-
-          {children}
-        </main>
-      </div>
+      {/* Main Body */}
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+        </div>
+        {children}
+      </main>
     </div>
   );
 }

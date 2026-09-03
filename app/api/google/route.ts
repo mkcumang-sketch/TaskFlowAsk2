@@ -1,28 +1,21 @@
 import { NextResponse } from "next/server";
+import { getGoogleOAuthClient } from "@/lib/google";
 
 export async function GET() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/google/callback";
+  const oauth2Client = getGoogleOAuthClient();
 
-  if (!clientId) {
-    return NextResponse.json({ enabled: false, error: "Google OAuth is not configured." }, { status: 400 });
-  }
+  // Calendar sync aur login dono ke scopes
+  const scopes = [
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/calendar.events",
+  ];
 
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: [
-      "https://www.googleapis.com/auth/calendar",
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile",
-    ].join(" "),
+  const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
+    scope: scopes,
     prompt: "consent",
   });
 
-  return NextResponse.json({
-    enabled: true,
-    authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
-  });
+  return NextResponse.json({ authUrl });
 }

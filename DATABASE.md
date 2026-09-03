@@ -11,18 +11,38 @@ TaskFlow uses Prisma as the database layer and SQLite by default for local devel
 - Department
 - Team
 - Project
+- ProjectMember
 - Task
 - TaskAssignee
+- Subtask
+- ChecklistItem
+- Tag
+- TaskTag
 - Comment
+- CommentMention
+- Attachment
+- TaskDependency
+- TaskTemplate
+- TaskTemplateItem
 - Notification
-- Reminder
+- EmailNotification
 - CalendarIntegration
 - CalendarEvent
-- Automation
-- Goal
+- Reminder
+- EscalationRule
 - Approval
 - TimeEntry
+- Goal
+- Automation
+- AutomationTrigger
+- AutomationCondition
+- AutomationAction
 - ActivityLog
+- AuditLog
+- UserPreference
+- OAuthAccount
+- Session
+- WebhookEvent
 
 ## Local setup
 
