@@ -50,6 +50,17 @@ The app includes a production-oriented foundation for:
 - `DEPLOYMENT.md`
 - `SECURITY.md`
 - `TESTING.md`
+- `ENVIRONMENT.md`
+
+## Current status
+
+This workspace now includes:
+
+- a validated Prisma schema with organization-scoped task and workflow models
+- real server-side JWT session auth and organization membership checks
+- functional task creation with assignment, tags, checklist, subtasks, dependency recording, and activity logging
+- notification and task API flows that persist data in SQLite for local development
+- a buildable Next.js app that passes lint and production build validation in the local environment
 
 ## Important note
 
