@@ -33,6 +33,7 @@ export default async function TeamPage() {
     <AppShell
       title="Team & Agents"
       subtitle="Manage your team agents and invite new members to the workspace."
+      userRole={user.role ?? undefined}
     >
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         {/* Members List */}

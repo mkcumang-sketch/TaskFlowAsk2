@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { requireUser } from "@/lib/auth";
 import { getDashboardStats, getTasksForOrganization } from "@/lib/data";
@@ -6,11 +7,30 @@ import { formatDateTime } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const user = await requireUser();
+
+  // Role safely extract karo (handle string or relational object)
+// Isko replace karo:
+const normalizedRole = (user.role || "EMPLOYEE").toUpperCase();
+  const isBoss =
+    normalizedRole === "SUPER_ADMIN" ||
+    normalizedRole === "ADMIN" ||
+    normalizedRole === "OWNER" ||
+    normalizedRole === "MANAGER";
+
+  // Security: Employee ko dashboard se redirect karke my-day bhej do
+  if (!isBoss) {
+    redirect("/my-day");
+  }
+
   const stats = await getDashboardStats(user.organizationId!);
   const tasks = await getTasksForOrganization(user.organizationId!);
 
   return (
-    <AppShell title="Dashboard" subtitle="Operational overview across your organization.">
+    <AppShell
+      title="Dashboard"
+      subtitle="Operational overview across your organization."
+      userRole={normalizedRole}
+    >
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total tasks" value={String(stats.total)} tone="slate" />
         <StatCard label="In progress" value={String(stats.inProgress)} tone="blue" />
@@ -23,16 +43,24 @@ export default async function DashboardPage() {
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Recent tasks</h2>
-            <Link href="/tasks" className="text-sm font-medium text-slate-700 hover:text-slate-900">View all</Link>
+            <Link href="/tasks" className="text-sm font-medium text-slate-700 hover:text-slate-900">
+              View all
+            </Link>
           </div>
           <div className="space-y-3">
             {tasks.slice(0, 5).map((task) => (
               <div key={task.id} className="flex items-center justify-between rounded-2xl border border-slate-200 p-3">
                 <div>
-                  <Link href={`/tasks/${task.id}`} className="font-semibold text-slate-900 hover:text-slate-600">{task.title}</Link>
-                  <div className="mt-1 text-xs text-slate-500">{task.status} • {task.priority}</div>
+                  <Link href={`/tasks/${task.id}`} className="font-semibold text-slate-900 hover:text-slate-600">
+                    {task.title}
+                  </Link>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {task.status} • {task.priority}
+                  </div>
                 </div>
-                <span className="text-xs text-slate-500">{task.dueAt ? formatDateTime(task.dueAt) : "No deadline"}</span>
+                <span className="text-xs text-slate-500">
+                  {task.dueAt ? formatDateTime(task.dueAt) : "No deadline"}
+                </span>
               </div>
             ))}
           </div>
@@ -60,7 +88,15 @@ export default async function DashboardPage() {
   );
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone: "slate" | "blue" | "green" | "amber" | "red" }) {
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "slate" | "blue" | "green" | "amber" | "red";
+}) {
   const tones = {
     slate: "bg-slate-100 text-slate-900",
     blue: "bg-blue-100 text-blue-900",

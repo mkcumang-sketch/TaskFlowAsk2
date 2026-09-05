@@ -8,7 +8,7 @@ export default async function CalendarPage() {
   const tasks = await getTasksForOrganization(user.organizationId!);
 
   return (
-    <AppShell title="Calendar" subtitle="Track due dates, recurring work, and scheduling conflicts.">
+    <AppShell title="Calendar" subtitle="Track due dates, recurring work, and scheduling conflicts." userRole={user.role ?? undefined}>
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">Upcoming deadlines</h2>

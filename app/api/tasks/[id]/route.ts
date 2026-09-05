@@ -20,6 +20,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       creator: true,
       comments: { include: { author: true } },
       assignees: { include: { user: true } },
+      subtasks: true,
     },
   });
 
@@ -89,4 +90,59 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   return NextResponse.json(updatedTask);
+}
+
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const session = await getSession();
+
+    if (!session || !session.organizationId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const taskId = (await params).id;
+
+    const task = await prisma.task.findFirst({
+      where: {
+        id: taskId,
+        organizationId: session.organizationId,
+      },
+    });
+
+    if (!task) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    // Role check: Creator ya Admin/Manager hi task delete kar sakein
+    const userRole = (session.role || "").toUpperCase();
+    const canDelete =
+      task.creatorId === session.id ||
+      userRole === "SUPER_ADMIN" ||
+      userRole === "ADMIN" ||
+      userRole === "OWNER" ||
+      userRole === "MANAGER" ||
+      hasPermission(session.role, "delete_task");
+
+    if (!canDelete) {
+      return NextResponse.json({ error: "Forbidden. You do not have permission to delete this task." }, { status: 403 });
+    }
+
+    // MongoDB ke orphan documents cleanup
+    await prisma.$transaction([
+      prisma.comment.deleteMany({ where: { taskId } }),
+      prisma.subtask.deleteMany({ where: { taskId } }),
+      prisma.taskAssignee.deleteMany({ where: { taskId } }),
+      prisma.taskTag.deleteMany({ where: { taskId } }),
+      prisma.reminder.deleteMany({ where: { taskId } }),
+      prisma.timeEntry.deleteMany({ where: { taskId } }),
+      prisma.activityLog.deleteMany({ where: { taskId } }),
+      prisma.calendarEvent.deleteMany({ where: { taskId } }),
+      prisma.task.delete({ where: { id: taskId } }),
+    ]);
+
+    return NextResponse.json({ success: true, message: "Task deleted successfully" });
+  } catch (error) {
+    console.error("Delete Task API Error:", error);
+    return NextResponse.json({ error: "Failed to delete task" }, { status: 500 });
+  }
 }

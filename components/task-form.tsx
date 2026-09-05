@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { AiTaskModal } from "@/components/ai-task-modal";
+import { AiTaskModal, ParsedTaskData } from "@/components/ai-task-modal";
 
 interface TeamMember {
   id: string;
@@ -15,6 +15,13 @@ export function TaskForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
 
+  // Controlled form states
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [assigneeEmail, setAssigneeEmail] = useState("");
+  const [priority, setPriority] = useState("P2");
+  const [dueAt, setDueAt] = useState(""); // YYYY-MM-DD
+
   useEffect(() => {
     fetch("/api/team/members")
       .then((res) => res.json())
@@ -26,33 +33,68 @@ export function TaskForm() {
       .catch((err) => console.error("Failed to load team members:", err));
   }, []);
 
+  const handleAiParsed = (data: ParsedTaskData) => {
+    if (data.title) setTitle(data.title);
+    if (data.description) setDescription(data.description);
+
+    // AI priority mapping to P1-P5
+    if (data.priority) {
+      const p = data.priority.toUpperCase();
+      if (p.includes("1") || p.includes("URGENT") || p.includes("INSTANT") || p.includes("JALDI")) {
+        setPriority("P1");
+      } else if (p.includes("2") || p.includes("4H") || p.includes("4 HR")) {
+        setPriority("P2");
+      } else if (p.includes("3") || p.includes("8H") || p.includes("8 HR")) {
+        setPriority("P3");
+      } else if (p.includes("4") || p.includes("24H") || p.includes("24 HR") || p.includes("KAL") || p.includes("TOMORROW")) {
+        setPriority("P4");
+      } else if (p.includes("5") || p.includes("48H") || p.includes("48 HR") || p.includes("LOW")) {
+        setPriority("P5");
+      }
+    }
+
+    // Extract only YYYY-MM-DD for date-only input
+    if (data.dueAt) {
+      const d = new Date(data.dueAt);
+      if (!isNaN(d.getTime())) {
+        const dateOnly = d.toISOString().split("T")[0];
+        setDueAt(dateOnly);
+      }
+    }
+
+    if (data.assigneeName && members.length > 0) {
+      const match = members.find(
+        (m) =>
+          (m.name && m.name.toLowerCase().includes(data.assigneeName!.toLowerCase())) ||
+          m.email.toLowerCase().includes(data.assigneeName!.toLowerCase())
+      );
+      if (match) setAssigneeEmail(match.email);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = event.currentTarget;
-
     setLoading(true);
     setMessage(null);
 
+    const form = event.currentTarget;
     const formData = new FormData(form);
+
+    // Format YYYY-MM-DD to full ISO datetime (end of day)
+    const formattedDueAt = dueAt ? new Date(`${dueAt}T23:59:59.000Z`).toISOString() : null;
+
     const payload = {
-      title: String(formData.get("title") || ""),
-      description: String(formData.get("description") || ""),
-      assigneeEmail: String(formData.get("assigneeEmail") || ""),
-      startAt: String(formData.get("startAt") || ""),
-      dueAt: String(formData.get("dueAt") || ""),
-      estimatedMinutes: Number(formData.get("estimatedMinutes") || 0),
-      tags: String(formData.get("tags") || "")
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      checklist: String(formData.get("checklist") || "")
-        .split("\n")
-        .map((item) => ({ text: item.trim() }))
-        .filter((item) => item.text),
-      priority: String(formData.get("priority") || "MEDIUM"),
-      status: String(formData.get("taskStatus") || "ASSIGNED"),
-      taskStatus: String(formData.get("taskStatus") || "ASSIGNED"),
-      completionProofType: String(formData.get("completionProofType") || "NONE"),
+      title,
+      description,
+      assigneeEmail,
+      priority,
+      dueAt: formattedDueAt,
+      estimatedMinutes: 60,
+      tags: [],
+      completionProofType: "NONE",
+      checklist: [],
+      status: "ASSIGNED",
+      taskStatus: "ASSIGNED",
       approvalRequired: formData.get("approvalRequired") === "on",
       calendarSyncEnabled: formData.get("calendarSyncEnabled") === "on",
       emailEnabled: formData.get("emailEnabled") === "on",
@@ -61,9 +103,7 @@ export function TaskForm() {
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -71,12 +111,16 @@ export function TaskForm() {
 
       if (!response.ok) {
         setMessage(data.error || "Task creation failed.");
-        setLoading(false);
         return;
       }
 
       setMessage("Task created successfully.");
       form.reset();
+      setTitle("");
+      setDescription("");
+      setAssigneeEmail("");
+      setPriority("P2");
+      setDueAt("");
       window.location.reload();
     } catch {
       setMessage("Failed to submit task.");
@@ -92,7 +136,7 @@ export function TaskForm() {
     >
       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 className="text-base font-bold text-slate-900">Create Task</h3>
-        <AiTaskModal />
+        <AiTaskModal onParsed={handleAiParsed} />
       </div>
 
       <div>
@@ -100,7 +144,9 @@ export function TaskForm() {
         <input
           name="title"
           required
-          className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900 text-sm"
           placeholder="e.g. Audit Q3 vendor invoices"
         />
       </div>
@@ -110,117 +156,62 @@ export function TaskForm() {
         <textarea
           name="description"
           rows={3}
-          className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900 text-sm"
           placeholder="Scope, deliverables, and expectations"
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Dynamic Team Member Dropdown */}
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Assign To Agent</label>
-          <select
-            name="assigneeEmail"
-            required
-            defaultValue=""
-            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-slate-900 bg-white"
-          >
-            <option value="" disabled>Select an agent...</option>
-            {members.map((member) => (
-              <option key={member.id} value={member.email}>
-                {member.name ? `${member.name} (${member.email})` : member.email}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Deadline (Due Date)</label>
-          <input
-            name="dueAt"
-            type="datetime-local"
-            required
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
-          />
-        </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700">Assign To Agent</label>
+        <select
+          name="assigneeEmail"
+          required
+          value={assigneeEmail}
+          onChange={(e) => setAssigneeEmail(e.target.value)}
+          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-slate-900 bg-white text-sm"
+        >
+          <option value="" disabled>Select an agent...</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.email}>
+              {member.name ? `${member.name} (${member.email})` : member.email}
+            </option>
+          ))}
+        </select>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Start date</label>
-          <input
-            name="startAt"
-            type="datetime-local"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Estimated minutes</label>
-          <input
-            name="estimatedMinutes"
-            type="number"
-            min="15"
-            step="15"
-            defaultValue={60}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Priority</label>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Priority Level</label>
           <select
             name="priority"
-            defaultValue="MEDIUM"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900 bg-white"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-slate-900 bg-white text-sm"
           >
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-            <option value="URGENT">Urgent</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Completion Proof</label>
-          <select
-            name="completionProofType"
-            defaultValue="NONE"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900 bg-white"
-          >
-            <option value="NONE">None</option>
-            <option value="TEXT">Text Notes / Summary</option>
-            <option value="PDF">PDF File / Document</option>
-            <option value="EXCEL">Excel Spreadsheet</option>
-            <option value="CSV">CSV Data</option>
+            <option value="P1">P1 (Urgent)</option>
+            <option value="P2">P2 (4 hrs)</option>
+            <option value="P3">P3 (8 hrs)</option>
+            <option value="P4">P4 (24 hrs)</option>
+            <option value="P5">P5 (48 hrs)</option>
           </select>
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Tags (comma-separated)</label>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Deadline (Date)</label>
           <input
-            name="tags"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
-            placeholder="operations, urgent, finance"
+            name="dueAt"
+            type="date"
+            required
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900 text-sm bg-white"
           />
         </div>
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">
-          Checklist (one item per line)
-        </label>
-        <textarea
-          name="checklist"
-          rows={2}
-          className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900"
-          placeholder="Step 1&#10;Step 2&#10;Step 3"
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+      <div className="flex flex-wrap gap-4 text-xs text-slate-700">
         <label className="flex items-center gap-2">
           <input type="checkbox" name="approvalRequired" defaultChecked />
           Manager approval required
@@ -245,7 +236,7 @@ export function TaskForm() {
         </p>
       )}
 
-      <Button type="submit" disabled={loading} className="w-full">
+      <Button type="submit" disabled={loading} className="w-full cursor-pointer">
         {loading ? "Assigning Task..." : "Assign Task"}
       </Button>
     </form>

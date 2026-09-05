@@ -66,6 +66,7 @@ export default async function ReportsPage() {
     <AppShell
       title="Reports & Analytics"
       subtitle="Comprehensive overview of organizational velocity, workload, and completion health."
+      userRole={user.role ?? undefined}
     >
       <div className="space-y-6">
         {/* KPI Cards */}

@@ -48,23 +48,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // Normalize role name
-    const rawRoleName = user.role?.name || "MEMBER";
-    const role = rawRoleName.toUpperCase();
+    // Normalize role name (uppercase fallback to EMPLOYEE)
+    const rawRoleName = user.role?.name || "EMPLOYEE";
+    const normalizedRole = rawRoleName.toUpperCase();
 
-    // Create session token
+    // Create session token with consistent role casing
     const token = await createSessionToken({
       id: user.id,
       email: user.email,
       name: user.name ?? "",
       organizationId: user.organizationId,
-      role: rawRoleName,
+      role: normalizedRole,
     });
 
-    // Check if role qualifies for Admin Dashboard
-    const isDashboardUser = DASHBOARD_ROLES.has(role);
+    // Check if role qualifies for Admin Dashboard vs Employee My-Day
+    const isDashboardUser = DASHBOARD_ROLES.has(normalizedRole);
     const redirectTo = isDashboardUser ? "/dashboard" : "/my-day";
 
+    // Build the success response
     const response = NextResponse.json({
       success: true,
       redirectTo,
@@ -72,15 +73,14 @@ export async function POST(request: Request) {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: rawRoleName,
+        role: normalizedRole,
       },
     });
 
-    // Handle setSessionCookie safely whether it is sync or async
-    const cookieResult = await Promise.resolve(setSessionCookie(response, token));
-    
-    // Fallback: If setSessionCookie returned a modified response object, use it; otherwise use response
-    return cookieResult instanceof NextResponse ? cookieResult : response;
+    // Attach auth session cookie
+    await setSessionCookie(response, token);
+
+    return response;
   } catch (error) {
     console.error("Login API Error:", error);
     return NextResponse.json(

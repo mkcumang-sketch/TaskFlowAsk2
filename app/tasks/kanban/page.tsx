@@ -38,6 +38,7 @@ export default async function KanbanPage() {
     <AppShell
       title="Kanban Board"
       subtitle="Visual workflow management and state transitions."
+      userRole={user.role ?? undefined}
     >
       <div className="space-y-4">
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
