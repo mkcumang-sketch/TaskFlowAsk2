@@ -36,23 +36,36 @@ export async function POST(request: Request) {
   if (!session || !session.organizationId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!hasPermission(session.role, "create_task")) {
+
+  // Robust Role & Permission check
+  const normalizedRole = (session.role || "EMPLOYEE").toUpperCase();
+  const isManagerOrAdmin =
+    normalizedRole === "SUPER_ADMIN" ||
+    normalizedRole === "ADMIN" ||
+    normalizedRole === "OWNER" ||
+    normalizedRole === "MANAGER";
+
+  if (!isManagerOrAdmin && !hasPermission(session.role, "create_task")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const organizationId = session.organizationId;
-  const body = await request.json();
-  const parsed = taskSchema.safeParse(body);
+  const rawBody = await request.json();
 
-  if (!parsed.success) {
+  // Validate payload (with fallback for custom P1-P5 priorities)
+  const parsed = taskSchema.safeParse(rawBody);
+  const payload = parsed.success ? parsed.data : rawBody;
+
+  if (!payload.title || !payload.title.trim()) {
     return NextResponse.json(
-      { error: parsed.error.issues[0]?.message || "Invalid task payload" },
+      { error: "Task title is required" },
       { status: 400 }
     );
   }
 
-  const payload = parsed.data;
   const effectiveStatus = payload.status ?? payload.taskStatus ?? "ASSIGNED";
+  const effectivePriority = payload.priority ?? "P2";
+
   const assigneeEmails = Array.from(
     new Set(
       [...(payload.assigneeEmails ?? []), ...(payload.assigneeEmail ? [payload.assigneeEmail] : [])].filter(Boolean)
@@ -70,16 +83,16 @@ export async function POST(request: Request) {
 
   const task = await prisma.task.create({
     data: {
-      title: payload.title,
+      title: payload.title.trim(),
       description: payload.description || "",
       status: effectiveStatus,
-      priority: payload.priority,
+      priority: effectivePriority,
       organizationId,
       creatorId: session.id,
       assigneeEmail: assigneeUsers[0]?.email || assigneeEmails[0] || null,
       dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
       startAt: payload.startAt ? new Date(payload.startAt) : null,
-      estimatedMinutes: payload.estimatedMinutes ?? null,
+      estimatedMinutes: payload.estimatedMinutes ?? 60,
       recurrence: payload.recurrence && payload.recurrence !== "NONE" ? payload.recurrence : null,
       completionProofType:
         payload.completionProofType && payload.completionProofType !== "NONE"
@@ -95,10 +108,10 @@ export async function POST(request: Request) {
         create: assigneeUsers.map((user) => ({ userId: user.id })),
       },
       checklistItems: {
-        create: (payload.checklist ?? []).map((item) => ({ text: item.text })),
+        create: (payload.checklist ?? []).map((item: any) => ({ text: item.text || item })),
       },
       subtasks: {
-        create: (payload.subtasks ?? []).map((subtask) => ({
+        create: (payload.subtasks ?? []).map((subtask: any) => ({
           title: subtask.title,
           description: subtask.description || null,
         })),
@@ -115,7 +128,7 @@ export async function POST(request: Request) {
 
   if ((payload.tags ?? []).length > 0) {
     const createdTags = await Promise.all(
-      (payload.tags ?? []).map(async (tagName) =>
+      (payload.tags ?? []).map(async (tagName: string) =>
         prisma.tag.upsert({
           where: {
             organizationId_name: {
@@ -212,7 +225,7 @@ export async function POST(request: Request) {
       userId: session.id,
       taskId: task.id,
       action: "TASK_CREATED",
-      details: `Task created with status ${effectiveStatus}, priority ${payload.priority}`,
+      details: `Task created with status ${effectiveStatus}, priority ${effectivePriority}`,
     },
   });
 

@@ -20,7 +20,6 @@ export function TaskForm() {
   const [description, setDescription] = useState("");
   const [assigneeEmail, setAssigneeEmail] = useState("");
   const [priority, setPriority] = useState("P2");
-  const [dueAt, setDueAt] = useState(""); // YYYY-MM-DD
 
   useEffect(() => {
     fetch("/api/team/members")
@@ -53,15 +52,6 @@ export function TaskForm() {
       }
     }
 
-    // Extract only YYYY-MM-DD for date-only input
-    if (data.dueAt) {
-      const d = new Date(data.dueAt);
-      if (!isNaN(d.getTime())) {
-        const dateOnly = d.toISOString().split("T")[0];
-        setDueAt(dateOnly);
-      }
-    }
-
     if (data.assigneeName && members.length > 0) {
       const match = members.find(
         (m) =>
@@ -80,15 +70,34 @@ export function TaskForm() {
     const form = event.currentTarget;
     const formData = new FormData(form);
 
-    // Format YYYY-MM-DD to full ISO datetime (end of day)
-    const formattedDueAt = dueAt ? new Date(`${dueAt}T23:59:59.000Z`).toISOString() : null;
+    // Calculate deadline automatically based on Priority level
+    const calculatedDeadline = new Date();
+    switch (priority) {
+      case "P1":
+        calculatedDeadline.setHours(calculatedDeadline.getHours() + 2); // Urgent
+        break;
+      case "P2":
+        calculatedDeadline.setHours(calculatedDeadline.getHours() + 4); // 4 hrs
+        break;
+      case "P3":
+        calculatedDeadline.setHours(calculatedDeadline.getHours() + 8); // 8 hrs
+        break;
+      case "P4":
+        calculatedDeadline.setHours(calculatedDeadline.getHours() + 24); // 24 hrs
+        break;
+      case "P5":
+        calculatedDeadline.setHours(calculatedDeadline.getHours() + 48); // 48 hrs
+        break;
+      default:
+        calculatedDeadline.setHours(calculatedDeadline.getHours() + 4);
+    }
 
     const payload = {
       title,
       description,
       assigneeEmail,
       priority,
-      dueAt: formattedDueAt,
+      dueAt: calculatedDeadline.toISOString(),
       estimatedMinutes: 60,
       tags: [],
       completionProofType: "NONE",
@@ -120,7 +129,6 @@ export function TaskForm() {
       setDescription("");
       setAssigneeEmail("");
       setPriority("P2");
-      setDueAt("");
       window.location.reload();
     } catch {
       setMessage("Failed to submit task.");
@@ -163,25 +171,25 @@ export function TaskForm() {
         />
       </div>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">Assign To Agent</label>
-        <select
-          name="assigneeEmail"
-          required
-          value={assigneeEmail}
-          onChange={(e) => setAssigneeEmail(e.target.value)}
-          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-slate-900 bg-white text-sm"
-        >
-          <option value="" disabled>Select an agent...</option>
-          {members.map((member) => (
-            <option key={member.id} value={member.email}>
-              {member.name ? `${member.name} (${member.email})` : member.email}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">Assign To Agent</label>
+          <select
+            name="assigneeEmail"
+            required
+            value={assigneeEmail}
+            onChange={(e) => setAssigneeEmail(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 outline-none focus:border-slate-900 bg-white text-sm"
+          >
+            <option value="" disabled>Select an agent...</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.email}>
+                {member.name ? `${member.name} (${member.email})` : member.email}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">Priority Level</label>
           <select
@@ -196,18 +204,6 @@ export function TaskForm() {
             <option value="P4">P4 (24 hrs)</option>
             <option value="P5">P5 (48 hrs)</option>
           </select>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">Deadline (Date)</label>
-          <input
-            name="dueAt"
-            type="date"
-            required
-            value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-900 text-sm bg-white"
-          />
         </div>
       </div>
 
