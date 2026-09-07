@@ -1,19 +1,24 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { requireUser } from "@/lib/auth";
+import { requireOrganizationMembership } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export default async function AdminPage() {
-  const user = await requireUser();
+  const user = await requireOrganizationMembership();
   const normalizedRole = (user.role || "EMPLOYEE").toUpperCase();
 
-  if (normalizedRole !== "SUPER_ADMIN" && normalizedRole !== "ADMIN" && normalizedRole !== "OWNER") {
+  if (
+    normalizedRole !== "SUPER_ADMIN" &&
+    normalizedRole !== "ADMIN" &&
+    normalizedRole !== "OWNER" &&
+    normalizedRole !== "MANAGER"
+  ) {
     redirect("/dashboard");
   }
 
   const [userCount, taskCount, orgCount] = await Promise.all([
-    prisma.user.count({ where: { organizationId: user.organizationId! } }),
-    prisma.task.count({ where: { organizationId: user.organizationId! } }),
+    prisma.user.count({ where: { organizationId: user.organizationId } }),
+    prisma.task.count({ where: { organizationId: user.organizationId } }),
     prisma.organization.count(),
   ]);
 

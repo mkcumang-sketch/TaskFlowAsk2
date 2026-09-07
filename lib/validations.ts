@@ -30,7 +30,7 @@ export const taskStatusValues = [
   "NEEDS_CLARIFICATION",
 ] as const;
 
-export const taskPriorityValues = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
+export const taskPriorityValues = ["P1", "P2", "P3", "P4", "P5"] as const;
 
 export const recurrenceValues = ["NONE", "DAILY", "WEEKDAYS", "WEEKLY", "MONTHLY", "YEARLY", "CUSTOM"] as const;
 
@@ -46,12 +46,16 @@ export const taskSchema = z.object({
   departmentId: z.string().optional(),
   teamId: z.string().optional(),
   projectId: z.string().optional(),
-  priority: z.enum(taskPriorityValues).default("MEDIUM"),
+  projectName: z.string().optional(),
+  priority: z.enum(taskPriorityValues).default("P2"),
   status: z.enum(taskStatusValues).default("ASSIGNED"),
   taskStatus: z.enum(taskStatusValues).default("ASSIGNED").optional(),
   estimatedMinutes: z.number().int().positive().optional(),
   tags: z.array(z.string().min(1)).optional().default([]),
-  checklist: z.array(z.object({ text: z.string().min(1) })).optional().default([]),
+  checklist: z
+    .array(z.union([z.object({ text: z.string().min(1) }), z.string().min(1)]))
+    .optional()
+    .default([]),
   subtasks: z.array(z.object({ title: z.string().min(1), description: z.string().optional() })).optional().default([]),
   dependencies: z.array(z.string()).optional().default([]),
   recurrence: z.enum(recurrenceValues).optional().default("NONE"),

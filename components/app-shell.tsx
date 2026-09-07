@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/notification-bell";
 import { QuickCapture } from "@/components/quick-capture";
+import { SPSidebar } from "@/components/sp-sidebar";
 
 interface AppShellProps {
   title: string;
   subtitle?: string;
-  userRole?: string;
+  userRole?: string | null;
   children: React.ReactNode;
 }
 
@@ -25,6 +26,15 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
 
   // Roadmap Navigation Items for Manager / Admin
   const managerNavItems = [
+    { label: "Today", href: "/today" },
+    { label: "Inbox", href: "/inbox" },
+    { label: "Planner", href: "/planner" },
+    { label: "Schedule", href: "/schedule" },
+    { label: "Boards", href: "/boards/kanban" },
+    { label: "Habits", href: "/habits" },
+    { label: "Brain Dump", href: "/brain-dump" },
+    { label: "Upcoming", href: "/upcoming" },
+    { label: "Pool", href: "/team-pool" },
     { label: "Dashboard", href: "/dashboard" },
     { label: "Tasks", href: "/tasks" },
     { label: "Kanban", href: "/tasks/kanban" },
@@ -39,6 +49,11 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
 
   // Roadmap Navigation Items for Employee / Member
   const employeeNavItems = [
+    { label: "Today", href: "/today" },
+    { label: "Inbox", href: "/inbox" },
+    { label: "Habits", href: "/habits" },
+    { label: "Brain Dump", href: "/brain-dump" },
+    { label: "Pool", href: "/team-pool" },
     { label: "My Day", href: "/my-day" },
     { label: "My Tasks", href: "/tasks" },
     { label: "Calendar", href: "/calendar" },
@@ -124,13 +139,16 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
       </nav>
 
       {/* Main Body */}
-      <main className="mx-auto max-w-7xl px-4 py-8 pb-24 sm:px-6 sm:pb-8">
+      <div className="mx-auto flex max-w-7xl">
+        <SPSidebar />
+        <main className="min-w-0 flex-1 px-4 py-8 pb-24 sm:px-6 sm:pb-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
         </div>
         {children}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

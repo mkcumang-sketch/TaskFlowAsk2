@@ -52,9 +52,15 @@ export async function POST(request: Request) {
   const organizationId = session.organizationId;
   const rawBody = await request.json();
 
-  // Validate payload (with fallback for custom P1-P5 priorities)
+  // Validate payload, including the P1-P5 priority contract.
   const parsed = taskSchema.safeParse(rawBody);
-  const payload = parsed.success ? parsed.data : rawBody;
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid task payload.", details: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+  const payload = parsed.data;
 
   if (!payload.title || !payload.title.trim()) {
     return NextResponse.json(
@@ -65,6 +71,10 @@ export async function POST(request: Request) {
 
   const effectiveStatus = payload.status ?? payload.taskStatus ?? "ASSIGNED";
   const effectivePriority = payload.priority ?? "P2";
+  const slaHours: Record<string, number> = { P1: 2, P2: 4, P3: 8, P4: 24, P5: 48 };
+  const dueAt = payload.dueAt
+    ? new Date(payload.dueAt)
+    : new Date(Date.now() + (slaHours[effectivePriority] ?? 4) * 60 * 60 * 1000);
 
   const assigneeEmails = Array.from(
     new Set(
@@ -80,6 +90,11 @@ export async function POST(request: Request) {
         },
       })
     : [];
+  const project = payload.projectId
+    ? await prisma.project.findFirst({ where: { id: payload.projectId, organizationId } })
+    : payload.projectName
+      ? await prisma.project.findFirst({ where: { organizationId, name: payload.projectName } })
+      : null;
 
   const task = await prisma.task.create({
     data: {
@@ -90,7 +105,7 @@ export async function POST(request: Request) {
       organizationId,
       creatorId: session.id,
       assigneeEmail: assigneeUsers[0]?.email || assigneeEmails[0] || null,
-      dueAt: payload.dueAt ? new Date(payload.dueAt) : null,
+      dueAt,
       startAt: payload.startAt ? new Date(payload.startAt) : null,
       estimatedMinutes: payload.estimatedMinutes ?? 60,
       recurrence: payload.recurrence && payload.recurrence !== "NONE" ? payload.recurrence : null,
@@ -103,7 +118,7 @@ export async function POST(request: Request) {
       emailEnabled: payload.emailEnabled ?? true,
       departmentId: payload.departmentId ?? null,
       teamId: payload.teamId ?? null,
-      projectId: payload.projectId ?? null,
+      projectId: project?.id ?? null,
       assignees: {
         create: assigneeUsers.map((user) => ({ userId: user.id })),
       },

@@ -116,7 +116,6 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     // Role check: Creator ya Admin/Manager hi task delete kar sakein
     const userRole = (session.role || "").toUpperCase();
     const canDelete =
-      task.creatorId === session.id ||
       userRole === "SUPER_ADMIN" ||
       userRole === "ADMIN" ||
       userRole === "OWNER" ||
@@ -130,13 +129,20 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     // MongoDB ke orphan documents cleanup
     await prisma.$transaction([
       prisma.comment.deleteMany({ where: { taskId } }),
+      prisma.checklistItem.deleteMany({ where: { taskId } }),
       prisma.subtask.deleteMany({ where: { taskId } }),
       prisma.taskAssignee.deleteMany({ where: { taskId } }),
       prisma.taskTag.deleteMany({ where: { taskId } }),
+      prisma.taskDependency.deleteMany({ where: { OR: [{ taskId }, { dependsOnId: taskId }] } }),
       prisma.reminder.deleteMany({ where: { taskId } }),
+      prisma.notification.deleteMany({ where: { taskId } }),
+      prisma.approval.deleteMany({ where: { taskId } }),
       prisma.timeEntry.deleteMany({ where: { taskId } }),
       prisma.activityLog.deleteMany({ where: { taskId } }),
       prisma.calendarEvent.deleteMany({ where: { taskId } }),
+      prisma.emailNotification.deleteMany({ where: { taskId } }),
+      prisma.escalationRule.deleteMany({ where: { taskId } }),
+      prisma.attachment.deleteMany({ where: { taskId } }),
       prisma.task.delete({ where: { id: taskId } }),
     ]);
 

@@ -29,6 +29,10 @@ model Organization {
   auditLogs          AuditLog[]
   escalationRules    EscalationRule[]
   tags               Tag[]
+  recurringTemplates RecurringTemplate[]
+  habits             Habit[]
+  timeBlocks         TimeBlock[]
+  brainDumpNotes     BrainDumpNote[]
 }
 
 model Permission {
@@ -82,6 +86,11 @@ model User {
   emailNotifications   EmailNotification[]
   commentMentions      CommentMention[]      @relation("MentionedUser")
   attachments          Attachment[]
+  recurringTemplates   RecurringTemplate[] @relation("RecurringTemplateCreator")
+  habits               Habit[]
+  habitLogs            HabitLog[]
+  timeBlocks           TimeBlock[]
+  brainDumpNotes       BrainDumpNote[]
 @@index([organizationId])
 
 }
@@ -184,6 +193,9 @@ model Task {
   activityLogs        ActivityLog[]
   emailNotifications  EmailNotification[]
   escalationRules     EscalationRule[]
+  timeBlocks           TimeBlock[]
+  recurringInstances   RecurringTemplate[] @relation("RecurringTemplateTask")
+  brainDumpNotes       BrainDumpNote[]
 
   @@index([organizationId, status])
   @@index([dueAt])
@@ -499,6 +511,92 @@ model Attachment {
 
   @@index([taskId])
   @@index([commentId])
+}
+
+model RecurringTemplate {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId      String   @db.ObjectId
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creatorId           String?  @db.ObjectId
+  creator             User?    @relation("RecurringTemplateCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  title               String
+  description         String?
+  frequency           String
+  timeOfDay           String?
+  subtaskTemplates    String[]
+  active              Boolean  @default(true)
+  lastGeneratedDate   String?
+  generatedTaskId     String?  @db.ObjectId
+  generatedTask       Task?    @relation("RecurringTemplateTask", fields: [generatedTaskId], references: [id], onDelete: SetNull)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([organizationId, active])
+}
+
+model Habit {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId   String   @db.ObjectId
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId           String   @db.ObjectId
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name             String
+  frequencyDays    Int[]
+  active            Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  logs             HabitLog[]
+
+  @@index([organizationId, userId, active])
+}
+
+model HabitLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  habitId     String   @db.ObjectId
+  habit       Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        String
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([habitId, date])
+  @@index([userId, date])
+}
+
+model TimeBlock {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @db.ObjectId
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId      String?  @db.ObjectId
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  startTime   DateTime
+  endTime     DateTime
+  type        String
+  title       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, startTime])
+}
+
+model BrainDumpNote {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String   @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String   @db.ObjectId
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content        String
+  isConverted     Boolean  @default(false)
+  convertedTaskId String?  @db.ObjectId
+  convertedTask   Task?    @relation(fields: [convertedTaskId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId, isConverted])
 }
 
 model TaskTemplate {

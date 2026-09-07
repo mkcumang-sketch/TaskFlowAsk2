@@ -17,6 +17,7 @@ export function TaskTimer({ taskId, initialActualMinutes = 0 }: TaskTimerProps) 
   const [manualMinutes, setManualMinutes] = useState("");
   const [saving, setSaving] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const syncedMinutesRef = useRef(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -32,6 +33,19 @@ export function TaskTimer({ taskId, initialActualMinutes = 0 }: TaskTimerProps) 
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isActive, isPaused]);
+
+  useEffect(() => {
+    if (!isActive || isPaused || seconds === 0 || seconds % 60 !== 0) return;
+    const minutes = Math.floor(seconds / 60) - syncedMinutesRef.current;
+    if (minutes <= 0) return;
+    fetch(`/api/tasks/${taskId}/time`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minutes, note: "Live focus session" }),
+    }).then((response) => {
+      if (response.ok) syncedMinutesRef.current += minutes;
+    }).catch((error) => console.error("Failed to sync live time", error));
+  }, [isActive, isPaused, seconds, taskId]);
 
   const formatTime = (totalSec: number) => {
     const hrs = Math.floor(totalSec / 3600);
@@ -54,10 +68,17 @@ export function TaskTimer({ taskId, initialActualMinutes = 0 }: TaskTimerProps) 
   };
 
   const handleStopAndSave = async () => {
-    const recordedMinutes = Math.max(1, Math.round(seconds / 60));
+    const recordedMinutes = Math.max(1, Math.round(seconds / 60) - syncedMinutesRef.current);
     setSaving(true);
 
     try {
+      if (Math.round(seconds / 60) <= syncedMinutesRef.current) {
+        setIsActive(false);
+        setIsPaused(false);
+        setSeconds(0);
+        syncedMinutesRef.current = 0;
+        return;
+      }
       const res = await fetch(`/api/tasks/${taskId}/time`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -71,6 +92,7 @@ export function TaskTimer({ taskId, initialActualMinutes = 0 }: TaskTimerProps) 
         setIsActive(false);
         setIsPaused(false);
         setSeconds(0);
+        syncedMinutesRef.current = 0;
         setNote("");
         router.refresh();
       }

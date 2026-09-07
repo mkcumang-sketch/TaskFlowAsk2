@@ -12,7 +12,13 @@ export type SessionUser = {
 };
 
 export const SESSION_COOKIE = "taskflow_session";
-const JWT_SECRET = process.env.AUTH_SECRET || process.env.JWT_SECRET || "dev-secret";
+function getJwtSecret() {
+  const secret = process.env.AUTH_SECRET || process.env.JWT_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET or JWT_SECRET must be configured in production.");
+  }
+  return secret || "dev-secret";
+}
 
 const PERMISSIONS_BY_ROLE: Record<string, string[]> = {
   SUPER_ADMIN: ["*"],
@@ -26,7 +32,7 @@ const PERMISSIONS_BY_ROLE: Record<string, string[]> = {
 };
 
 export async function createSessionToken(user: SessionUser) {
-  return jwt.sign(user, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign(user, getJwtSecret(), { expiresIn: "7d" });
 }
 
 export async function getSession() {
@@ -38,7 +44,7 @@ export async function getSession() {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as SessionUser;
+    const payload = jwt.verify(token, getJwtSecret()) as SessionUser;
 
     const user = await prisma.user.findUnique({
       where: { id: payload.id },

@@ -21,8 +21,11 @@ export async function POST(
   const taskId = (await params).id;
   const body = await request.json();
   const { nextStatus, note, proofUrl, rejectionReason } = body;
+  if (typeof nextStatus !== "string") {
+    return NextResponse.json({ error: "nextStatus is required." }, { status: 400 });
+  }
 
-  const task = await prisma.task.findUnique({
+  const task = await prisma.task.findFirst({
     where: { id: taskId, organizationId },
     include: { assignees: true },
   });
@@ -76,6 +79,17 @@ export async function POST(
         }`,
       },
     }),
+    ...(nextStatus === "REVIEW" && (proofUrl || note)
+      ? [
+          prisma.comment.create({
+            data: {
+              taskId,
+              authorId: session.id,
+              content: `Work Proof Submitted:\n${proofUrl ? `Link: ${proofUrl}\n` : ""}${note ? `Note: ${note}` : ""}`,
+            },
+          }),
+        ]
+      : []),
   ]);
 
   if (task.emailEnabled) {

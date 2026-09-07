@@ -1,14 +1,14 @@
 import { AppShell } from "@/components/app-shell";
-import { requireUser } from "@/lib/auth";
+import { requireOrganizationMembership } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
 export default async function ProjectsPage() {
-  const user = await requireUser();
+  const user = await requireOrganizationMembership();
   const normalizedRole = (user.role || "EMPLOYEE").toUpperCase();
 
   const projects = await prisma.project.findMany({
-    where: { organizationId: user.organizationId! },
+    where: { organizationId: user.organizationId },
     include: {
       tasks: { select: { id: true, status: true } },
       members: { select: { id: true } },

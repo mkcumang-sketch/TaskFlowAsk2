@@ -30,7 +30,7 @@ Extract and output ONLY valid JSON matching this schema:
   "description": "Clear professional description explaining what needs to be done",
   "assigneeName": "Name or email mentioned if any, otherwise empty string",
   "dueAt": "ISO 8601 string for deadline (calculate relative terms like 'kal', 'tomorrow', 'shaam 5 baje' based on current datetime), or empty string",
-  "priority": "LOW" | "MEDIUM" | "HIGH" | "URGENT",
+  "priority": "P1" | "P2" | "P3" | "P4" | "P5",
   "estimatedMinutes": number (integer in minutes, default 60 if not specified),
   "completionProofType": "NONE" | "TEXT" | "PDF" | "EXCEL" | "CSV",
   "tags": ["tag1", "tag2"],
@@ -38,7 +38,7 @@ Extract and output ONLY valid JSON matching this schema:
 }
 
 Rules:
-- If user mentions "urgent" or "jaldi", set priority to "URGENT" or "HIGH".
+- If user mentions "urgent" or "jaldi", set priority to "P1".
 - If user mentions "screenshot", "pdf", "report", or "excel", set completionProofType accordingly.
 - Return pure JSON only.
 `;
@@ -91,7 +91,7 @@ Rules:
       description: prompt,
       assigneeName: "",
       dueAt: deadline.toISOString(),
-      priority: isUrgent ? "URGENT" : "MEDIUM",
+      priority: isUrgent ? "P1" : "P2",
       estimatedMinutes: 60,
       completionProofType: hasPdf ? "PDF" : hasExcel ? "EXCEL" : "NONE",
       tags: ["quick-assign"],

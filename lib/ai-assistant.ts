@@ -1,7 +1,7 @@
 export interface ParsedTaskResult {
   title: string;
   description: string;
-  priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  priority: "P1" | "P2" | "P3" | "P4" | "P5";
   assigneeEmail?: string;
   dueAt?: string;
   estimatedMinutes?: number;
@@ -16,7 +16,7 @@ export async function parseTaskWithAI(userInput: string): Promise<ParsedTaskResu
 Parse the user's task request into a strict JSON object with these exact keys:
 - "title": (string) Short clear task title.
 - "description": (string) Additional context or scope.
-- "priority": ("LOW" | "MEDIUM" | "HIGH" | "URGENT") Default to "MEDIUM".
+- "priority": ("P1" | "P2" | "P3" | "P4" | "P5") Default to "P2".
 - "assigneeEmail": (string or empty string if not mentioned)
 - "dueAt": (ISO 8601 string or empty string if not mentioned, relative to current time)
 - "estimatedMinutes": (number in minutes, default 60)
@@ -54,7 +54,7 @@ Output MUST be raw JSON without markdown code blocks.`;
   // 2. Secondary Provider: OpenAI / Compatible
   if (openAIKey) {
     try {
-      const res = await fetch("[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)", {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -81,12 +81,12 @@ Output MUST be raw JSON without markdown code blocks.`;
 
   // 3. Fallback Heuristic Parser (Agar API keys configured nahi hain)
   const isUrgent = /urgent|asap|critical/i.test(userInput);
-  const isHigh = /high priority|important/i.test(userInput);
+  const isP2 = /high priority|important/i.test(userInput);
 
   return {
     title: userInput.slice(0, 60),
     description: userInput,
-    priority: isUrgent ? "URGENT" : isHigh ? "HIGH" : "MEDIUM",
+    priority: isUrgent ? "P1" : isP2 ? "P2" : "P3",
     estimatedMinutes: 60,
     checklist: ["Review scope", "Execute deliverables", "Submit proof"],
   };
