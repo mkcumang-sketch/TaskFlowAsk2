@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await prisma.user.findFirst({ select: { id: true } });
 
     return NextResponse.json({
       status: "ok",

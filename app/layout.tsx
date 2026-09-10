@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TaskFlow",
+  title: "Ask2Global",
   description: "Team task assignment, calendar, and accountability platform.",
 };
 

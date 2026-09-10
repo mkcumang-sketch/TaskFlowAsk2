@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
   const secret = request.headers.get("authorization")?.replace("Bearer ", "");
-  if (process.env.CRON_SECRET && secret !== process.env.CRON_SECRET) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || secret !== cronSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const today = new Date().toISOString().slice(0, 10);
   const templates = await prisma.recurringTemplate.findMany({ where: { active: true, OR: [{ lastGeneratedDate: null }, { lastGeneratedDate: { not: today } }] } });
   let generated = 0;

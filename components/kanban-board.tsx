@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { formatDateTime } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface TaskItem {
   id: string;
@@ -10,155 +11,490 @@ interface TaskItem {
   description?: string | null;
   status: string;
   priority: string;
-  dueAt?: string | null;
-  assignees?: { user: { name: string | null; email: string } }[];
-  completionProofType?: string | null;
+  dueAt?: string | Date | null;
+  startAt?: string | Date | null;
+  assignees?: Array<{ user: { id: string; name: string | null; email: string } }>;
+  project?: { id: string; name: string } | null;
+  subtasks?: Array<{ id: string; title: string; completed: boolean }>;
+}
+
+interface KanbanBoardProps {
+  initialTasks: TaskItem[];
+  projects?: Array<{ id: string; name: string }>;
+  teamMembers?: Array<{ id: string; name: string | null; email: string }>;
+  currentUserId?: string;
 }
 
 const COLUMNS = [
-  { id: "ASSIGNED", label: "To Do / Assigned", color: "border-blue-400 bg-blue-50/40" },
-  { id: "IN_PROGRESS", label: "In Progress", color: "border-amber-400 bg-amber-50/40" },
-  { id: "REVIEW", label: "Under Review", color: "border-purple-400 bg-purple-50/40" },
-  { id: "COMPLETED", label: "Completed / Approved", color: "border-emerald-400 bg-emerald-50/40" },
+  {
+    id: "ASSIGNED",
+    title: "TO DO / ASSIGNED",
+    accentColor: "border-sky-400 bg-sky-50/40 text-sky-900",
+    badge: "bg-sky-100 text-sky-800",
+    dropZoneHover: "border-sky-400 bg-sky-100/60 ring-2 ring-sky-300",
+  },
+  {
+    id: "IN_PROGRESS",
+    title: "IN PROGRESS",
+    accentColor: "border-amber-400 bg-amber-50/40 text-amber-900",
+    badge: "bg-amber-100 text-amber-800",
+    dropZoneHover: "border-amber-400 bg-amber-100/60 ring-2 ring-amber-300",
+  },
+  {
+    id: "REVIEW",
+    title: "UNDER REVIEW",
+    accentColor: "border-purple-400 bg-purple-50/40 text-purple-900",
+    badge: "bg-purple-100 text-purple-800",
+    dropZoneHover: "border-purple-400 bg-purple-100/60 ring-2 ring-purple-300",
+  },
+  {
+    id: "COMPLETED",
+    title: "COMPLETED / APPROVED",
+    accentColor: "border-emerald-400 bg-emerald-50/40 text-emerald-900",
+    badge: "bg-emerald-100 text-emerald-800",
+    dropZoneHover: "border-emerald-400 bg-emerald-100/60 ring-2 ring-emerald-300",
+  },
 ];
 
-export function KanbanBoard({ initialTasks }: { initialTasks: TaskItem[] }) {
-  const [tasks, setTasks] = useState<TaskItem[]>(initialTasks);
-  const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+const PRIORITIES = [
+  { id: "P1", label: "P1 • Urgent (1h)", badge: "bg-rose-500 text-white animate-pulse" },
+  { id: "P2", label: "P2 • 4h SLA", badge: "bg-orange-500 text-white" },
+  { id: "P3", label: "P3 • 8h SLA", badge: "bg-amber-500 text-white" },
+  { id: "P4", label: "P4 • 24h SLA", badge: "bg-blue-600 text-white" },
+  { id: "P5", label: "P5 • 48h SLA", badge: "bg-slate-600 text-white" },
+];
 
-  const handleDragStart = (e: React.DragEvent, taskId: string) => {
-    e.dataTransfer.setData("taskId", taskId);
+function formatSafeDate(dateInput: string | Date | null | undefined): string {
+  if (!dateInput) return "No SLA";
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return "No SLA";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
+  const fHours = h % 12 || 12;
+  return `${months[d.getMonth()]} ${d.getDate()}, ${fHours}:${m} ${ampm}`;
+}
+
+export function KanbanBoard({
+  initialTasks = [],
+  projects = [],
+  teamMembers = [],
+  currentUserId,
+}: KanbanBoardProps) {
+  const router = useRouter();
+  const [tasks, setTasks] = useState<TaskItem[]>(initialTasks);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [activeDropColumn, setActiveDropColumn] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [mounted, setMounted] = useState(false);
+  const [, startTransition] = useTransition();
+
+  // Create Task Modal State
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [newAssigneeId, setNewAssigneeId] = useState("");
+  const [newProjectId, setNewProjectId] = useState("");
+  const [newPriority, setNewPriority] = useState("P3");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
+
+  const normalizeStatus = (st: string) => {
+    const s = st?.toUpperCase();
+    if (s === "DRAFT" || s === "BACKLOG" || s === "TODO") return "ASSIGNED";
+    if (s === "APPROVED") return "COMPLETED";
+    return s || "ASSIGNED";
   };
 
-  const handleDrop = async (e: React.DragEvent, targetStatus: string) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData("taskId");
-    if (!taskId) return;
-
-    const currentTask = tasks.find((t) => t.id === taskId);
-    if (!currentTask || currentTask.status === targetStatus) return;
-
-    // Optimistic UI update
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus } : t))
+  const filteredTasks = tasks.filter((t) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      t.title?.toLowerCase().includes(q) ||
+      t.description?.toLowerCase().includes(q) ||
+      t.project?.name?.toLowerCase().includes(q)
     );
-    setMovingTaskId(taskId);
+  });
 
-    try {
-      const res = await fetch(`/api/tasks/${taskId}/transitions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nextStatus: targetStatus }),
-      });
+  // Drag Handlers
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, taskId: string) => {
+    e.dataTransfer.setData("text/plain", taskId);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedTaskId(taskId);
+  };
 
-      if (!res.ok) {
-        // Rollback on server rejection
-        const err = await res.json();
-        alert(err.error || "Transition not permitted.");
-        setTasks(initialTasks);
-      }
-    } catch {
-      alert("Failed to update status.");
-      setTasks(initialTasks);
-    } finally {
-      setMovingTaskId(null);
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, columnId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    if (activeDropColumn !== columnId) {
+      setActiveDropColumn(columnId);
     }
   };
 
-  const filteredTasks = tasks.filter((t) =>
-    t.title.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, targetStatus: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveDropColumn(null);
+
+    const taskId = e.dataTransfer.getData("text/plain") || draggedTaskId;
+    if (!taskId) return;
+
+    const taskToMove = tasks.find((t) => t.id === taskId);
+    if (!taskToMove || normalizeStatus(taskToMove.status) === targetStatus) {
+      setDraggedTaskId(null);
+      return;
+    }
+
+    // Optimistic UI state update
+    const previousTasks = [...tasks];
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus } : t))
+    );
+    setDraggedTaskId(null);
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: targetStatus,
+          completedAt: targetStatus === "COMPLETED" ? new Date().toISOString() : null,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server responded with ${res.status}`);
+      }
+
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (error) {
+      console.error("Drop status update failed:", error);
+      // Revert optimistic change on network failure
+      setTasks(previousTasks);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          description: newDescription.trim(),
+          assigneeId: newAssigneeId || undefined,
+          projectId: newProjectId || undefined,
+          priority: newPriority,
+        }),
+      });
+
+      if (res.ok) {
+        setShowCreateModal(false);
+        setNewTitle("");
+        setNewDescription("");
+        setNewAssigneeId("");
+        setNewProjectId("");
+        setNewPriority("P3");
+        router.refresh();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to create task");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <input
-          type="text"
-          placeholder="Filter cards in board..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-72 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-800"
-        />
-        <span className="text-xs text-slate-500">Drag tasks across columns to transition status</span>
+    <div className="w-full space-y-6 select-none font-sans">
+      {/* 🧭 Action Header Ribbon */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-white/80 bg-white/95 p-4 shadow-xl backdrop-blur-xl">
+        <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-100 p-1">
+          <Link
+            href="/tasks"
+            className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-950 transition"
+          >
+            List View
+          </Link>
+          <button
+            type="button"
+            className="rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white shadow-md cursor-default"
+          >
+            Kanban View
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="text"
+            placeholder="Filter cards in board..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-56 sm:w-72 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-purple-600 shadow-xs transition"
+          />
+
+          <Button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="min-h-[40px] rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 px-5 text-xs font-black text-white shadow-lg shadow-purple-500/25 hover:from-purple-700 hover:to-indigo-700 transition cursor-pointer"
+          >
+            + Create New Task
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {COLUMNS.map((col) => {
+      {/* ▦ Kanban Grid Columns */}
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4 items-start">
+        {COLUMNS.map((column) => {
           const colTasks = filteredTasks.filter(
-            (t) =>
-              t.status === col.id ||
-              (col.id === "COMPLETED" && t.status === "APPROVED")
+            (t) => normalizeStatus(t.status) === column.id
           );
+          const isTarget = activeDropColumn === column.id;
 
           return (
             <div
-              key={col.id}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => handleDrop(e, col.id)}
-              className={`flex flex-col min-h-[560px] rounded-2xl border-t-4 border p-3.5 ${col.color}`}
+              key={column.id}
+              onDragOver={(e) => handleDragOver(e, column.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, column.id)}
+              className={`flex flex-col min-h-[620px] rounded-[30px] border-2 bg-white/95 p-4 shadow-xl transition-all duration-200 ${
+                column.accentColor
+              } ${isTarget ? column.dropZoneHover : ""}`}
             >
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  {col.label}
+              {/* Column Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-1 pt-1">
+                <span className="text-xs font-black tracking-tight text-slate-900">
+                  {column.title}
                 </span>
-                <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold text-slate-600 shadow-sm">
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-black font-mono shadow-xs ${column.badge}`}
+                >
                   {colTasks.length}
                 </span>
               </div>
 
-              <div className="flex-1 space-y-2.5 overflow-y-auto">
-                {colTasks.map((task) => (
+              {/* Task Stack Droppable Area */}
+              <div
+                onDragOver={(e) => handleDragOver(e, column.id)}
+                className="mt-3.5 flex-1 space-y-3.5"
+              >
+                {colTasks.length === 0 ? (
                   <div
-                    key={task.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, task.id)}
-                    className={`cursor-grab rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:shadow-md active:cursor-grabbing ${
-                      movingTaskId === task.id ? "opacity-40" : "opacity-100"
+                    onDragOver={(e) => handleDragOver(e, column.id)}
+                    className={`flex h-40 items-center justify-center rounded-2xl border-2 border-dashed transition-all ${
+                      isTarget
+                        ? "border-purple-500 bg-purple-100/60 text-purple-800 font-extrabold text-xs"
+                        : "border-slate-200/90 bg-slate-50/50 text-slate-400 text-xs"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-700">
-                        {task.priority}
-                      </span>
-                      {task.completionProofType && task.completionProofType !== "NONE" && (
-                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">
-                          {task.completionProofType} PROOF
-                        </span>
-                      )}
-                    </div>
-
-                    <Link href={`/tasks/${task.id}`} className="mt-2 block">
-                      <h4 className="text-sm font-semibold text-slate-900 line-clamp-2 hover:text-blue-600">
-                        {task.title}
-                      </h4>
-                    </Link>
-
-                    {task.description && (
-                      <p className="mt-1 text-xs text-slate-500 line-clamp-2">
-                        {task.description}
-                      </p>
-                    )}
-
-                    <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] text-slate-400">
-                      <span>{task.dueAt ? formatDateTime(task.dueAt) : "No deadline"}</span>
-                      <span className="truncate max-w-[90px] font-medium text-slate-600">
-                        {task.assignees?.[0]?.user?.name || "Unassigned"}
-                      </span>
-                    </div>
+                    {isTarget ? "Release to drop here" : "Drop task here"}
                   </div>
-                ))}
+                ) : (
+                  colTasks.map((task) => {
+                    const isBeingDragged = draggedTaskId === task.id;
+                    const assignedUser = task.assignees?.[0]?.user;
+                    const pConfig = PRIORITIES.find((p) => p.id === task.priority) || {
+                      badge: "bg-slate-600 text-white",
+                      label: task.priority || "P3",
+                    };
 
-                {colTasks.length === 0 && (
-                  <div className="flex h-28 items-center justify-center rounded-xl border border-dashed border-slate-300 text-xs text-slate-400">
-                    Drop task here
-                  </div>
+                    return (
+                      <div
+                        key={task.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, task.id)}
+                        onDragEnd={() => setDraggedTaskId(null)}
+                        className={`group relative cursor-grab active:cursor-grabbing rounded-2xl border border-slate-200/90 bg-white p-4.5 shadow-sm transition-all duration-150 hover:-translate-y-1 hover:border-purple-300 hover:shadow-md ${
+                          isBeingDragged ? "opacity-25 scale-95 ring-2 ring-purple-500" : ""
+                        }`}
+                      >
+                        {/* Priority Badge & Project */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-black uppercase shadow-xs ${pConfig.badge}`}
+                          >
+                            {task.priority || "P3"}
+                          </span>
+
+                          {task.project && (
+                            <span className="text-[10px] font-bold text-purple-700 truncate max-w-[120px]">
+                              📁 {task.project.name}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Title & Description */}
+                        <h4 className="mt-2.5 text-xs font-black text-slate-900 line-clamp-2 leading-snug">
+                          {task.title}
+                        </h4>
+
+                        {task.description && (
+                          <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                            {task.description}
+                          </p>
+                        )}
+
+                        {/* Footer Details */}
+                        <div className="mt-3.5 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[10px] text-slate-400 font-medium">
+                          <span suppressHydrationWarning>
+                            {mounted ? formatSafeDate(task.dueAt) : "..."}
+                          </span>
+
+                          <span className="font-bold text-slate-800 truncate max-w-[100px]">
+                            👤 {assignedUser?.name || assignedUser?.email?.split("@")[0] || "Unassigned"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* 🚀 MODAL: Create New Task */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4 border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-black text-slate-900 tracking-tight">
+                  Create Task
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Configure assignment, project, and priority SLA.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-400 hover:bg-slate-200 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTask} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700">Task Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Design landing page mockup"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold outline-none focus:border-purple-600 transition"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700">Instructions</label>
+                <textarea
+                  rows={3}
+                  placeholder="Context, requirements, and deliverables..."
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-xs font-medium outline-none focus:border-purple-600 transition"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-700">Assign To</label>
+                  <select
+                    value={newAssigneeId}
+                    onChange={(e) => setNewAssigneeId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold outline-none cursor-pointer"
+                  >
+                    <option value="">Select an Employee...</option>
+                    {teamMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || m.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700">Project</label>
+                  <select
+                    value={newProjectId}
+                    onChange={(e) => setNewProjectId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold outline-none cursor-pointer"
+                  >
+                    <option value="">No Project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700">Priority SLA Window</label>
+                <div className="grid grid-cols-5 gap-2 mt-1.5">
+                  {PRIORITIES.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setNewPriority(p.id)}
+                      className={`flex flex-col items-center justify-center p-2 rounded-2xl border text-center transition cursor-pointer ${
+                        newPriority === p.id
+                          ? `${p.badge} border-transparent shadow-md scale-105`
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span className="text-xs font-black">{p.id}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCreateModal(false)}
+                  className="rounded-xl"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="rounded-xl bg-purple-600 text-white font-black hover:bg-purple-700 shadow-md cursor-pointer"
+                >
+                  {isSubmitting ? "Creating..." : "Create Task"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

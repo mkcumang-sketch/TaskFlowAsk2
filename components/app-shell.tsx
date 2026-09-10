@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { NotificationBell } from "@/components/notification-bell";
 import { QuickCapture } from "@/components/quick-capture";
 import { SPSidebar } from "@/components/sp-sidebar";
@@ -14,54 +13,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: AppShellProps) {
-  const pathname = usePathname();
-
-  // Normalize role to handle lowercase, uppercase, and MEMBER/EMPLOYEE equivalence
-  const normalizedRole = (userRole || "EMPLOYEE").toUpperCase();
-  const isManagerOrAdmin =
-    normalizedRole === "SUPER_ADMIN" ||
-    normalizedRole === "ADMIN" ||
-    normalizedRole === "OWNER" ||
-    normalizedRole === "MANAGER";
-
-  // Roadmap Navigation Items for Manager / Admin
-  const managerNavItems = [
-    { label: "Today", href: "/today" },
-    { label: "Inbox", href: "/inbox" },
-    { label: "Planner", href: "/planner" },
-    { label: "Schedule", href: "/schedule" },
-    { label: "Boards", href: "/boards/kanban" },
-    { label: "Habits", href: "/habits" },
-    { label: "Brain Dump", href: "/brain-dump" },
-    { label: "Upcoming", href: "/upcoming" },
-    { label: "Pool", href: "/team-pool" },
-    { label: "Dashboard", href: "/dashboard" },
-    { label: "Tasks", href: "/tasks" },
-    { label: "Kanban", href: "/tasks/kanban" },
-    { label: "Team", href: "/team" },
-    { label: "Reports", href: "/reports" },
-    { label: "Calendar", href: "/calendar" },
-    { label: "Projects", href: "/projects" },
-    { label: "Notifications", href: "/notifications" },
-    { label: "Settings", href: "/settings" },
-    { label: "Admin", href: "/admin" },
-  ];
-
-  // Roadmap Navigation Items for Employee / Member
-  const employeeNavItems = [
-    { label: "Today", href: "/today" },
-    { label: "Inbox", href: "/inbox" },
-    { label: "Habits", href: "/habits" },
-    { label: "Brain Dump", href: "/brain-dump" },
-    { label: "Pool", href: "/team-pool" },
-    { label: "My Day", href: "/my-day" },
-    { label: "My Tasks", href: "/tasks" },
-    { label: "Calendar", href: "/calendar" },
-    { label: "Notifications", href: "/notifications" },
-    { label: "Settings", href: "/settings" },
-  ];
-
-  const navItems = isManagerOrAdmin ? managerNavItems : employeeNavItems;
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -69,46 +21,37 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-8">
-            <Link
-              href={isManagerOrAdmin ? "/dashboard" : "/my-day"}
-              className="flex items-center gap-2"
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-slate-50/50">
+      {/* 🚀 Top Global Utility & Quick Capture Bar */}
+      <header className="z-30 shrink-0 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 backdrop-blur-md sm:px-6">
+        <div className="flex w-full items-center justify-between gap-3">
+          {/* Mobile Hamburger (< lg) */}
+          <div className="flex items-center gap-2.5 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              className="flex h-10 w-10 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-xs hover:bg-slate-50 transition active:scale-95"
+              aria-label="Open navigation menu"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-sm font-black text-white">
-                T
-              </span>
-              <span className="text-base font-bold text-slate-900 tracking-tight">TaskFlow</span>
-            </Link>
-
-            <nav className="hidden overflow-x-auto sm:flex items-center gap-1">
-              {navItems.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                      active
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <span className="text-sm font-black tracking-tight text-slate-900">TaskFlow</span>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Quick Capture (Takes Expanded Width) */}
+          <div className="min-w-0 flex-1 max-w-3xl">
+            <QuickCapture />
+          </div>
+
+          {/* User Actions */}
+          <div className="flex items-center gap-2.5 shrink-0">
             <NotificationBell />
             <button
+              type="button"
               onClick={handleLogout}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition"
+              className="hidden sm:inline-flex min-h-[38px] items-center rounded-xl border border-slate-200/90 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs"
             >
               Sign out
             </button>
@@ -116,37 +59,48 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
         </div>
       </header>
 
-      {/* Quick Capture Toolbar */}
-      <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-6">
-        <div className="mx-auto flex max-w-7xl">
-          <QuickCapture />
+      {/* 🖥️ Full Screen App Body (Fixed Sidebar + Scrollable Workspace) */}
+      <div className="flex flex-1 w-full overflow-hidden">
+        {/* Fixed Desktop Sidebar */}
+        <div className="hidden lg:flex shrink-0 h-full">
+          <SPSidebar userRole={userRole ?? "EMPLOYEE"} />
         </div>
-      </div>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 p-2 backdrop-blur sm:hidden">
-        {navItems.slice(0, 4).map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`rounded-lg px-2 py-2 text-center text-[11px] font-semibold ${
-              pathname === item.href ? "bg-slate-900 text-white" : "text-slate-600"
-            }`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+        {/* Mobile Slide-Over Drawer */}
+        {mobileNavOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <div
+              className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <div className="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <span className="font-extrabold text-sm text-slate-900">TaskFlow</span>
+                <button
+                  type="button"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto" onClick={() => setMobileNavOpen(false)}>
+                <SPSidebar userRole={userRole ?? "EMPLOYEE"} isMobile onClose={() => setMobileNavOpen(false)} />
+              </div>
+            </div>
+          </div>
+        )}
 
-      {/* Main Body */}
-      <div className="mx-auto flex max-w-7xl">
-        <SPSidebar />
-        <main className="min-w-0 flex-1 px-4 py-8 pb-24 sm:px-6 sm:pb-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
-          {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
-        </div>
-        {children}
+        {/* 🌟 Dynamic Expanded Workspace Viewport */}
+        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 lg:px-10 pb-20">
+          <div className="w-full">
+            {/* Page Title & Subtitle */}
+            <div className="mb-6">
+              <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">{title}</h1>
+              {subtitle && <p className="mt-1 text-xs sm:text-sm font-medium text-slate-500">{subtitle}</p>}
+            </div>
+            {children}
+          </div>
         </main>
       </div>
     </div>

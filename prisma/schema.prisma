@@ -7,32 +7,94 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// --------------------------------------------------------
+// ENUMS FOR INBOX, WORKFLOWS & PRESENCE
+// --------------------------------------------------------
+
+enum NotificationCategory {
+  ALL
+  TASKS
+  DIRECT_MESSAGES
+  GROUP_CHATS
+  GMAIL
+  MENTIONS
+  COMMENTS
+  REMINDERS
+  APPROVALS
+  SYSTEM
+  CALENDAR
+  FILES
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ConversationType {
+  DIRECT
+  DEPARTMENT
+  COMPANY_ALL_HANDS
+  PROJECT
+}
+
+enum ParticipantRole {
+  ADMIN
+  LEAD
+  MEMBER
+}
+
+enum MessageType {
+  TEXT
+  TASK_CARD
+  FILE
+  VOICE
+  IMAGE
+  PROJECT_CARD
+}
+
+enum UserPresenceStatus {
+  ONLINE
+  AWAY
+  BUSY
+  OFFLINE
+}
+
+// --------------------------------------------------------
+// CORE WORKSPACE & USER MODELS
+// --------------------------------------------------------
+
 model Organization {
-  id                 String              @id @default(auto()) @map("_id") @db.ObjectId
-  name               String
-  slug               String              @unique
-  timezone           String              @default("UTC")
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  users              User[]
-  departments        Department[]
-  teams              Team[]
-  projects           Project[]
-  tasks              Task[]
-  goals              Goal[]
-  notifications      Notification[]
-  reminders          Reminder[]
-  automations        Automation[]
-  emailNotifications EmailNotification[]
-  taskTemplates      TaskTemplate[]
-  webhookEvents      WebhookEvent[]
-  auditLogs          AuditLog[]
-  escalationRules    EscalationRule[]
-  tags               Tag[]
-  recurringTemplates RecurringTemplate[]
-  habits             Habit[]
-  timeBlocks         TimeBlock[]
-  brainDumpNotes     BrainDumpNote[]
+  id                  String                @id @default(auto()) @map("_id") @db.ObjectId
+  name                String
+  slug                String                @unique
+  timezone            String                @default("UTC")
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  users               User[]
+  departments         Department[]
+  teams               Team[]
+  projects            Project[]
+  tasks               Task[]
+  goals               Goal[]
+  notifications       Notification[]
+  reminders           Reminder[]
+  automations         Automation[]
+  emailNotifications  EmailNotification[]
+  taskTemplates       TaskTemplate[]
+  webhookEvents       WebhookEvent[]
+  auditLogs           AuditLog[]
+  escalationRules     EscalationRule[]
+  tags                Tag[]
+  recurringTemplates  RecurringTemplate[]
+  habits              Habit[]
+  timeBlocks          TimeBlock[]
+  brainDumpNotes      BrainDumpNote[]
+  conversations       Conversation[]
+  activityLogs        ActivityLog[]
 }
 
 model Permission {
@@ -53,24 +115,31 @@ model Role {
 }
 
 model User {
-  id                   String                @id @default(auto()) @map("_id") @db.ObjectId
+  id                   String                 @id @default(auto()) @map("_id") @db.ObjectId
   name                 String
-  email                String                @unique
+  email                String                 @unique
+  memberCode           String?                // Unique handle (e.g. Umang2390) managed safely without MongoDB null collision
   passwordHash         String?
   avatarUrl            String?
-  timezone             String                @default("UTC")
-  organizationId       String?               @db.ObjectId
-  organization         Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  roleId               String?               @db.ObjectId
-  role                 Role?                 @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  teamId               String?               @db.ObjectId
-  team                 Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  departmentId         String?               @db.ObjectId
-  department           Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  tasksCreated         Task[]                @relation("TaskCreator")
-  taskAssignments      TaskAssignee[]
+  timezone             String                 @default("UTC")
+  presenceStatus       UserPresenceStatus     @default(OFFLINE)
+  lastSeenAt           DateTime?              @default(now())
+
+  organizationId       String?                @db.ObjectId
+  organization         Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  roleId               String?                @db.ObjectId
+  role                 Role?                  @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  teamId               String?                @db.ObjectId
+  team                 Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  departmentId         String?                @db.ObjectId
+  department           Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  // Task & Project relations
+  tasksCreated         Task[]                 @relation("TaskCreator")
+  taskAssignments     TaskAssignee[]
   comments             Comment[]
   notifications        Notification[]
   activityLogs         ActivityLog[]
@@ -84,40 +153,51 @@ model User {
   sessions             Session[]
   pushSubscriptions    PushSubscription[]
   emailNotifications   EmailNotification[]
-  commentMentions      CommentMention[]      @relation("MentionedUser")
+  commentMentions      CommentMention[]       @relation("MentionedUser")
   attachments          Attachment[]
-  recurringTemplates   RecurringTemplate[] @relation("RecurringTemplateCreator")
+  recurringTemplates   RecurringTemplate[]    @relation("RecurringTemplateCreator")
   habits               Habit[]
   habitLogs            HabitLog[]
   timeBlocks           TimeBlock[]
   brainDumpNotes       BrainDumpNote[]
-@@index([organizationId])
+  gmailAccounts        GmailAccount[]
 
+  // Real-time Chat Relations
+  messagesSent         Message[]              @relation("MessageSender")
+  conversationMemberships ConversationParticipant[]
+  createdConversations Conversation[]        @relation("ConversationCreator")
+
+  @@index([organizationId, presenceStatus])
+  @@index([departmentId])
+  @@index([memberCode])
 }
 
 model Department {
-  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
   name           String
-  organizationId String       @db.ObjectId
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  description    String?
+  organizationId String         @db.ObjectId
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   users          User[]
   teams          Team[]
   tasks          Task[]
-  createdAt      DateTime     @default(now())
+  conversations  Conversation[]
+  createdAt      DateTime       @default(now())
 
+  @@unique([organizationId, name])
   @@index([organizationId])
 }
 
 model Team {
-  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
   name           String
-  organizationId String        @db.ObjectId
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  departmentId   String?       @db.ObjectId
-  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  organizationId String         @db.ObjectId
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departmentId   String?        @db.ObjectId
+  department     Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   members        User[]
   tasks          Task[]
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime       @default(now())
 
   @@index([organizationId])
 }
@@ -131,6 +211,7 @@ model Project {
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   members        ProjectMember[]
   tasks          Task[]
+  conversations  Conversation[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -148,22 +229,26 @@ model ProjectMember {
   @@unique([userId, projectId])
 }
 
+// --------------------------------------------------------
+// TASK SYSTEM
+// --------------------------------------------------------
+
 model Task {
-  id                  String             @id @default(auto()) @map("_id") @db.ObjectId
+  id                  String               @id @default(auto()) @map("_id") @db.ObjectId
   title               String
   description         String?
-  status              String             @default("DRAFT")
-  priority            String             @default("MEDIUM")
-  organizationId      String             @db.ObjectId
-  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  projectId           String?            @db.ObjectId
-  project             Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  departmentId        String?            @db.ObjectId
-  department          Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  teamId              String?            @db.ObjectId
-  team                Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  creatorId           String?            @db.ObjectId
-  creator             User?              @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  status              String               @default("DRAFT")
+  priority            String               @default("P3")
+  organizationId      String               @db.ObjectId
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId           String?              @db.ObjectId
+  project             Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  departmentId        String?              @db.ObjectId
+  department          Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  teamId              String?              @db.ObjectId
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  creatorId           String?              @db.ObjectId
+  creator             User?                @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: SetNull)
   assignees           TaskAssignee[]
   assigneeEmail       String?
   dueAt               DateTime?
@@ -172,19 +257,20 @@ model Task {
   actualMinutes       Int?
   recurrence          String?
   completionProofType String?
-  approvalRequired    Boolean            @default(false)
-  calendarSyncEnabled Boolean            @default(false)
-  emailEnabled        Boolean            @default(true)
+  approvalRequired    Boolean              @default(false)
+  calendarSyncEnabled Boolean              @default(false)
+  emailEnabled        Boolean              @default(true)
   completedAt         DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
   comments            Comment[]
   reminders           Reminder[]
   notifications       Notification[]
   approvals           Approval[]
   timeEntries         TimeEntry[]
-  dependencies        TaskDependency[]   @relation("TaskDependencySource")
-  dependentTasks      TaskDependency[]   @relation("TaskDependencyTarget")
+  dependencies        TaskDependency[]     @relation("TaskDependencySource")
+  dependentTasks      TaskDependency[]     @relation("TaskDependencyTarget")
   checklistItems      ChecklistItem[]
   subtasks            Subtask[]
   taskTags            TaskTag[]
@@ -193,9 +279,11 @@ model Task {
   activityLogs        ActivityLog[]
   emailNotifications  EmailNotification[]
   escalationRules     EscalationRule[]
-  timeBlocks           TimeBlock[]
-  recurringInstances   RecurringTemplate[] @relation("RecurringTemplateTask")
-  brainDumpNotes       BrainDumpNote[]
+  timeBlocks          TimeBlock[]
+  recurringInstances  RecurringTemplate[]  @relation("RecurringTemplateTask")
+  brainDumpNotes      BrainDumpNote[]
+  gmailThreads        GmailThread[]
+  messages            Message[]
 
   @@index([organizationId, status])
   @@index([dueAt])
@@ -238,22 +326,233 @@ model Comment {
   updatedAt   DateTime         @updatedAt
 }
 
-model Notification {
-  id             String        @id @default(auto()) @map("_id") @db.ObjectId
-  type           String
-  content        String
-  read           Boolean       @default(false)
-  userId         String        @db.ObjectId
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  taskId         String?       @db.ObjectId
-  task           Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  organizationId String?       @db.ObjectId
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  link           String?
-  createdAt      DateTime      @default(now())
+// --------------------------------------------------------
+// INBOX & REAL-TIME COMMUNICATIONS
+// --------------------------------------------------------
 
-  @@index([userId, read])
+model Notification {
+  id             String                @id @default(auto()) @map("_id") @db.ObjectId
+  type           String                @default("GENERAL")
+  category       NotificationCategory  @default(ALL)
+  priority       NotificationPriority  @default(MEDIUM)
+  content        String
+  title          String?
+  read           Boolean               @default(false)
+  pinned         Boolean               @default(false)
+  archived       Boolean               @default(false)
+  snoozedUntil   DateTime?
+  userId         String                @db.ObjectId
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actorId        String?               @db.ObjectId
+  taskId         String?               @db.ObjectId
+  task           Task?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  organizationId String?               @db.ObjectId
+  organization   Organization?         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  link           String?
+  entityType     String?
+  entityId       String?
+  metadata       Json?
+  createdAt      DateTime              @default(now())
+
+  @@index([userId, read, archived])
+  @@index([organizationId, category])
 }
+
+model Conversation {
+  id             String                    @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String                    @db.ObjectId
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type           ConversationType          @default(DEPARTMENT)
+  name           String?
+  image          String?
+  description    String?
+
+  departmentId   String?                   @db.ObjectId
+  department     Department?               @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  projectId      String?                   @db.ObjectId
+  project        Project?                  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  creatorId      String?                   @db.ObjectId
+  creator        User?                     @relation("ConversationCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+
+  lastMessageAt  DateTime                  @default(now())
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  participants   ConversationParticipant[]
+  messages       Message[]
+
+  @@index([organizationId, type])
+  @@index([organizationId, lastMessageAt])
+}
+
+model ConversationParticipant {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String          @db.ObjectId
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String          @db.ObjectId
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           ParticipantRole @default(MEMBER)
+  joinedAt       DateTime        @default(now())
+  lastReadAt     DateTime        @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String          @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String          @db.ObjectId
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String          @db.ObjectId
+  sender         User            @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String
+  type           MessageType     @default(TEXT)
+  mediaUrl       String?
+  mediaName      String?
+  taskId         String?         @db.ObjectId
+  task           Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  replyToId      String?         @db.ObjectId
+  mentions       String[]        @default([])
+  readByIds      String[]        @default([])
+  reactions      Json?
+  isPinned       Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([conversationId, createdAt])
+}
+
+model GmailAccount {
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String        @db.ObjectId
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email        String
+  accessToken  String
+  refreshToken String
+  syncStatus   String        @default("IDLE")
+  lastSyncedAt DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  threads      GmailThread[]
+
+  @@unique([userId, email])
+}
+
+model GmailThread {
+  id         String       @id @default(auto()) @map("_id") @db.ObjectId
+  accountId  String       @db.ObjectId
+  account    GmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  threadId   String
+  subject    String
+  snippet    String
+  from       String
+  to         String[]
+  labels     String[]
+  isStarred  Boolean      @default(false)
+  isRead     Boolean      @default(false)
+  receivedAt DateTime
+  taskId     String?      @db.ObjectId
+  task       Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  createdAt  DateTime     @default(now())
+
+  @@index([accountId, receivedAt])
+}
+
+// --------------------------------------------------------
+// ROUTINES, HABITS & TIME BLOCKING
+// --------------------------------------------------------
+
+model Habit {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String       @db.ObjectId
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  frequencyDays  Int[]
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  logs           HabitLog[]
+
+  @@index([organizationId, userId, active])
+}
+
+model HabitLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  habitId   String   @db.ObjectId
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([habitId, date])
+  @@index([userId, date])
+}
+
+model TimeBlock {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String       @db.ObjectId
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId         String?      @db.ObjectId
+  task           Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  startTime      DateTime
+  endTime        DateTime
+  type           String
+  title          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([userId, startTime])
+}
+
+model BrainDumpNote {
+  id              String       @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId  String       @db.ObjectId
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId          String       @db.ObjectId
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content         String
+  isConverted     Boolean      @default(false)
+  convertedTaskId String?      @db.ObjectId
+  convertedTask   Task?        @relation(fields: [convertedTaskId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId, isConverted])
+}
+
+model RecurringTemplate {
+  id                String       @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId    String       @db.ObjectId
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creatorId         String?      @db.ObjectId
+  creator           User?        @relation("RecurringTemplateCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  title             String
+  description       String?
+  frequency         String
+  timeOfDay         String?
+  subtaskTemplates  String[]
+  active            Boolean      @default(true)
+  lastGeneratedDate String?
+  generatedTaskId   String?      @db.ObjectId
+  generatedTask     Task?        @relation("RecurringTemplateTask", fields: [generatedTaskId], references: [id], onDelete: SetNull)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([organizationId, active])
+}
+
+// --------------------------------------------------------
+// SUPPORTING UTILITIES & AUDITING
+// --------------------------------------------------------
 
 model Reminder {
   id             String        @id @default(auto()) @map("_id") @db.ObjectId
@@ -329,15 +628,15 @@ model Automation {
 }
 
 model Goal {
-  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
   title          String
   targetValue    Int
-  currentValue   Int          @default(0)
-  ownerId        String?      @db.ObjectId
-  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  organizationId String       @db.ObjectId
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
+  currentValue   Int           @default(0)
+  ownerId        String?       @db.ObjectId
+  owner          User?         @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  organizationId String        @db.ObjectId
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
 }
 
 model Approval {
@@ -363,16 +662,19 @@ model TimeEntry {
 }
 
 model ActivityLog {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  taskId    String?  @db.ObjectId
-  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  userId    String?  @db.ObjectId
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action    String
-  details   String?
-  createdAt DateTime @default(now())
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  taskId         String?       @db.ObjectId
+  task           Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  userId         String?       @db.ObjectId
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organizationId String?       @db.ObjectId
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  action         String
+  details        String?
+  createdAt      DateTime      @default(now())
 
   @@index([taskId, createdAt])
+  @@index([organizationId, createdAt])
 }
 
 model PushSubscription {
@@ -511,92 +813,6 @@ model Attachment {
 
   @@index([taskId])
   @@index([commentId])
-}
-
-model RecurringTemplate {
-  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId      String   @db.ObjectId
-  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  creatorId           String?  @db.ObjectId
-  creator             User?    @relation("RecurringTemplateCreator", fields: [creatorId], references: [id], onDelete: SetNull)
-  title               String
-  description         String?
-  frequency           String
-  timeOfDay           String?
-  subtaskTemplates    String[]
-  active              Boolean  @default(true)
-  lastGeneratedDate   String?
-  generatedTaskId     String?  @db.ObjectId
-  generatedTask       Task?    @relation("RecurringTemplateTask", fields: [generatedTaskId], references: [id], onDelete: SetNull)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@index([organizationId, active])
-}
-
-model Habit {
-  id               String   @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId   String   @db.ObjectId
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId           String   @db.ObjectId
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name             String
-  frequencyDays    Int[]
-  active            Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  logs             HabitLog[]
-
-  @@index([organizationId, userId, active])
-}
-
-model HabitLog {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  habitId     String   @db.ObjectId
-  habit       Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
-  userId      String   @db.ObjectId
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date        String
-  completed   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([habitId, date])
-  @@index([userId, date])
-}
-
-model TimeBlock {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId String @db.ObjectId
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId      String   @db.ObjectId
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  taskId      String?  @db.ObjectId
-  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  startTime   DateTime
-  endTime     DateTime
-  type        String
-  title       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([userId, startTime])
-}
-
-model BrainDumpNote {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId String   @db.ObjectId
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId         String   @db.ObjectId
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content        String
-  isConverted     Boolean  @default(false)
-  convertedTaskId String?  @db.ObjectId
-  convertedTask   Task?    @relation(fields: [convertedTaskId], references: [id], onDelete: SetNull)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  @@index([userId, isConverted])
 }
 
 model TaskTemplate {

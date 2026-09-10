@@ -1,69 +1,67 @@
-import Link from "next/link";
-import { AppShell } from "@/components/app-shell";
-import { KanbanBoard } from "@/components/kanban-board";
 import { requireUser } from "@/lib/auth";
+import { AppShell } from "@/components/app-shell";
 import { prisma } from "@/lib/prisma";
+import { KanbanBoard } from "@/components/kanban-board";
 
 export default async function KanbanPage() {
   const user = await requireUser();
+  const organizationId = user.organizationId!;
 
-  const tasks = await prisma.task.findMany({
-    where: {
-      organizationId: user.organizationId!,
-    },
-    include: {
-      assignees: {
-        include: {
-          user: {
-            select: { name: true, email: true },
+  const userRole = (user.role || "").toUpperCase();
+  const isPrivileged = ["SUPER_ADMIN", "ADMIN", "OWNER", "MANAGER"].includes(userRole);
+
+  const taskWhereClause: any = {
+    organizationId,
+    status: { notIn: ["ARCHIVED"] },
+  };
+
+  if (!isPrivileged) {
+    taskWhereClause.OR = [
+      { assignees: { some: { userId: user.id } } },
+      { creatorId: user.id },
+    ];
+  }
+
+  const [tasks, projects, teamMembers] = await Promise.all([
+    prisma.task.findMany({
+      where: taskWhereClause,
+      include: {
+        project: { select: { id: true, name: true } },
+        assignees: {
+          include: {
+            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
           },
         },
+        subtasks: {
+          select: { id: true, title: true, completed: true },
+        },
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const formattedTasks = tasks.map((t) => ({
-    id: t.id,
-    title: t.title,
-    description: t.description,
-    status: t.status,
-    priority: t.priority,
-    dueAt: t.dueAt ? t.dueAt.toISOString() : null,
-    completionProofType: t.completionProofType,
-    assignees: t.assignees,
-  }));
+      orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+    }),
+    prisma.project.findMany({
+      where: { organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.user.findMany({
+      where: { organizationId },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   return (
     <AppShell
       title="Kanban Board"
-      subtitle="Visual workflow management and state transitions."
-      userRole={user.role ?? undefined}
+      subtitle="Visual workflow management, state transitions, and SLA tracking."
+      userRole={user.role}
     >
-      <div className="space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div className="flex items-center gap-2">
-            <Link
-              href="/tasks"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              List View
-            </Link>
-            <span className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">
-              Kanban View
-            </span>
-          </div>
-
-          <Link
-            href="/tasks"
-            className="text-xs font-semibold text-blue-600 hover:underline"
-          >
-            + Create New Task
-          </Link>
-        </div>
-
-        <KanbanBoard initialTasks={formattedTasks} />
-      </div>
+      <KanbanBoard
+        initialTasks={tasks as any}
+        projects={projects}
+        teamMembers={teamMembers}
+        currentUserId={user.id}
+      />
     </AppShell>
   );
 }

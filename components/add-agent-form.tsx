@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export function AddAgentForm() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; success: boolean } | null>(null);
 
@@ -36,7 +38,7 @@ export function AddAgentForm() {
 
       setMsg({ text: `Agent ${payload.name} successfully added!`, success: true });
       form.reset();
-      window.location.reload();
+      router.refresh();
     } catch {
       setMsg({ text: "Server error. Try again.", success: false });
     } finally {

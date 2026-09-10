@@ -1,114 +1,162 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
-import { AppShell } from "@/components/app-shell";
 import { requireUser } from "@/lib/auth";
-import { getDashboardStats, getTasksForOrganization } from "@/lib/data";
-import { formatDateTime } from "@/lib/utils";
+import { AppShell } from "@/components/app-shell";
+import { prisma } from "@/lib/prisma";
+import { DashboardClient } from "@/components/dashboard/dashboard-client";
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  const organizationId = user.organizationId!;
 
-  // Role safely extract karo (handle string or relational object)
-// Isko replace karo:
-const normalizedRole = (user.role || "EMPLOYEE").toUpperCase();
-  const isBoss =
-    normalizedRole === "SUPER_ADMIN" ||
-    normalizedRole === "ADMIN" ||
-    normalizedRole === "OWNER" ||
-    normalizedRole === "MANAGER";
+  const now = new Date();
 
-  // Security: Employee ko dashboard se redirect karke my-day bhej do
-  if (!isBoss) {
-    redirect("/my-day");
-  }
+  // Parallel database fetch for tasks, members, departments, and logs
+  const [tasks, teamMembers, departments, recentActivity] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        organizationId,
+        status: { notIn: ["ARCHIVED"] },
+      },
+      include: {
+        project: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, avatarUrl: true, role: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
 
-  const stats = await getDashboardStats(user.organizationId!);
-  const tasks = await getTasksForOrganization(user.organizationId!);
+    prisma.user.findMany({
+      where: { organizationId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatarUrl: true,
+        presenceStatus: true,
+        role: { select: { name: true } },
+        department: { select: { name: true } },
+        taskAssignments: {
+          include: {
+            task: {
+              select: {
+                id: true,
+                status: true,
+                priority: true,
+                dueAt: true,
+                completedAt: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+    }),
+
+    prisma.department.findMany({
+      where: { organizationId },
+      include: {
+        _count: { select: { tasks: true, users: true } },
+      },
+    }),
+
+    prisma.activityLog.findMany({
+      where: { organizationId },
+      take: 8,
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: { select: { name: true, email: true } },
+        task: { select: { title: true } },
+      },
+    }),
+  ]);
+
+  // Aggregate Real KPI Metrics
+  const totalTasks = tasks.length;
+  const inProgressTasks = tasks.filter((t) => t.status === "IN_PROGRESS").length;
+  const reviewTasks = tasks.filter((t) => t.status === "REVIEW").length;
+  const completedTasks = tasks.filter(
+    (t) => t.status === "COMPLETED" || t.status === "APPROVED"
+  ).length;
+
+  const overdueTasks = tasks.filter(
+    (t) =>
+      t.dueAt &&
+      new Date(t.dueAt) < now &&
+      !["COMPLETED", "APPROVED"].includes(t.status)
+  ).length;
+
+  const completionRate =
+    totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  // Individual Employee KPI Score Computation
+  const employeeKPIs = teamMembers.map((member) => {
+    const assigned = member.taskAssignments.map((a) => a.task);
+    const total = assigned.length;
+    const completed = assigned.filter(
+      (t) => t.status === "COMPLETED" || t.status === "APPROVED"
+    ).length;
+    const overdue = assigned.filter(
+      (t) =>
+        t.dueAt &&
+        new Date(t.dueAt) < now &&
+        !["COMPLETED", "APPROVED"].includes(t.status)
+    ).length;
+
+    // Score out of 100: baseline 100 - (overdue penalty * 15) + (completion ratio * 40)
+    let score = 75;
+    if (total > 0) {
+      score = Math.min(
+        100,
+        Math.max(10, Math.round((completed / total) * 60 + 40 - overdue * 15))
+      );
+    }
+
+    return {
+      id: member.id,
+      name: member.name || member.email.split("@")[0],
+      email: member.email,
+      role: member.role?.name || "Employee",
+      department: member.department?.name || "Operations",
+      presence: member.presenceStatus || "OFFLINE",
+      totalTasks: total,
+      completedTasks: completed,
+      overdueTasks: overdue,
+      performanceScore: score,
+    };
+  });
+
+  const userRoleString: string =
+    typeof user.role === "string"
+      ? user.role
+      : (user.role as any)?.name || "EMPLOYEE";
 
   return (
     <AppShell
-      title="Dashboard"
-      subtitle="Operational overview across your organization."
-      userRole={normalizedRole}
+      title="Strategic Command Center"
+      subtitle="Executive Intelligence, Real-time Team KPIs, and Rapid Operations."
+      userRole={userRoleString}
     >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Total tasks" value={String(stats.total)} tone="slate" />
-        <StatCard label="In progress" value={String(stats.inProgress)} tone="blue" />
-        <StatCard label="Completed" value={String(stats.completed)} tone="green" />
-        <StatCard label="Review" value={String(stats.review)} tone="amber" />
-        <StatCard label="Overdue" value={String(stats.overdue)} tone="red" />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Recent tasks</h2>
-            <Link href="/tasks" className="text-sm font-medium text-slate-700 hover:text-slate-900">
-              View all
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {tasks.slice(0, 5).map((task) => (
-              <div key={task.id} className="flex items-center justify-between rounded-2xl border border-slate-200 p-3">
-                <div>
-                  <Link href={`/tasks/${task.id}`} className="font-semibold text-slate-900 hover:text-slate-600">
-                    {task.title}
-                  </Link>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {task.status} • {task.priority}
-                  </div>
-                </div>
-                <span className="text-xs text-slate-500">
-                  {task.dueAt ? formatDateTime(task.dueAt) : "No deadline"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">At a glance</h2>
-          <div className="mt-4 space-y-4 text-sm text-slate-600">
-            <div className="rounded-2xl bg-slate-50 p-3">
-              <div className="text-slate-500">Completion rate</div>
-              <div className="mt-1 text-2xl font-bold text-slate-900">{stats.completionRate}%</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-3">
-              <div className="text-slate-500">Team workload</div>
-              <div className="mt-1 text-2xl font-bold text-slate-900">82%</div>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-3">
-              <div className="text-slate-500">Calendar sync</div>
-              <div className="mt-1 text-2xl font-bold text-slate-900">4 active</div>
-            </div>
-          </div>
-        </section>
-      </div>
+      <DashboardClient
+        metrics={{
+          totalTasks,
+          inProgressTasks,
+          completedTasks,
+          reviewTasks,
+          overdueTasks,
+          completionRate,
+        }}
+        tasks={JSON.parse(JSON.stringify(tasks))}
+        employeeKPIs={employeeKPIs}
+        departments={JSON.parse(JSON.stringify(departments))}
+        recentActivity={JSON.parse(JSON.stringify(recentActivity))}
+        currentUserId={user.id}
+        currentUserRole={userRoleString}
+      />
     </AppShell>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "slate" | "blue" | "green" | "amber" | "red";
-}) {
-  const tones = {
-    slate: "bg-slate-100 text-slate-900",
-    blue: "bg-blue-100 text-blue-900",
-    green: "bg-emerald-100 text-emerald-900",
-    amber: "bg-amber-100 text-amber-900",
-    red: "bg-rose-100 text-rose-900",
-  };
-
-  return (
-    <div className={`rounded-3xl p-5 ${tones[tone]}`}>
-      <div className="text-sm font-medium opacity-75">{label}</div>
-      <div className="mt-2 text-3xl font-bold">{value}</div>
-    </div>
   );
 }

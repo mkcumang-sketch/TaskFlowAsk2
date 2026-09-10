@@ -3,7 +3,26 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 export async function POST() {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Endpoint disabled in production." }, { status: 404 });
+  }
+
   try {
+    const existingAdmin = await prisma.user.findFirst({
+      where: {
+        role: {
+          name: { in: ["ADMIN", "SUPER_ADMIN", "OWNER"] },
+        },
+      },
+    });
+
+    if (existingAdmin) {
+      return NextResponse.json(
+        { error: "An administrator account already exists. Provisioning aborted." },
+        { status: 403 }
+      );
+    }
+
     const email = "admin@ask2global.com";
     const rawPassword = "Admin@2390";
     const passwordHash = await bcrypt.hash(rawPassword, 10);

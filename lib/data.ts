@@ -26,11 +26,15 @@ export async function getTasksForOrganization(organizationId: string) {
   return prisma.task.findMany({
     where: { organizationId },
     include: {
-      creator: true,
+      creator: {
+        select: { id: true, name: true, email: true, avatarUrl: true },
+      },
       comments: true,
       assignees: {
         include: {
-          user: true,
+          user: {
+            select: { id: true, name: true, email: true, avatarUrl: true },
+          },
         },
       },
     },

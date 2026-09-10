@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 interface TaskActionsProps {
@@ -19,6 +20,7 @@ export function TaskActionButtons({
   isAssignee = false,
   onStatusUpdated,
 }: TaskActionsProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [proofNote, setProofNote] = useState("");
   const [proofUrl, setProofUrl] = useState("");
@@ -47,7 +49,7 @@ export function TaskActionButtons({
       setShowProofModal(false);
       setShowRejectModal(false);
       if (onStatusUpdated) onStatusUpdated();
-      window.location.reload();
+      router.refresh();
     } catch (err) {
       console.error(err);
       alert("Transition failed");

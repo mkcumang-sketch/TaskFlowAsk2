@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AiTaskModal, ParsedTaskData } from "@/components/ai-task-modal";
 
@@ -11,6 +12,7 @@ interface TeamMember {
 }
 
 export function TaskForm() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -129,7 +131,7 @@ export function TaskForm() {
       setDescription("");
       setAssigneeEmail("");
       setPriority("P2");
-      window.location.reload();
+      router.refresh();
     } catch {
       setMessage("Failed to submit task.");
     } finally {

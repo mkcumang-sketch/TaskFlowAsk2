@@ -42,10 +42,10 @@ export function TodayTaskItem({ task, currentUserId }: TaskItemProps) {
   const toggleSubtask = async (subtaskId: string, completed: boolean) => {
     setLoading(true);
     try {
-      await fetch(`/api/tasks/${task.id}/subtasks/${subtaskId}`, {
+      await fetch(`/api/tasks/${task.id}/subtasks`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: !completed }),
+        body: JSON.stringify({ id: subtaskId, completed: !completed }),
       });
       router.refresh();
     } finally {

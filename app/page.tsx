@@ -5,7 +5,9 @@ export default function Home() {
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-6 py-20">
       <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm md:p-12">
         <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white">T</div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white">
+            T
+          </div>
           <div>
             <p className="text-xl font-bold tracking-tight">TASKFLOW</p>
             <p className="text-sm text-slate-500">Accountability OS</p>
@@ -14,7 +16,9 @@ export default function Home() {
 
         <div className="grid gap-12 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
           <div>
-            <p className="mb-4 text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Team workflow automation</p>
+            <p className="mb-4 text-sm font-medium uppercase tracking-[0.2em] text-slate-500">
+              Team workflow automation
+            </p>
             <h1 className="max-w-xl text-4xl font-bold tracking-tight text-slate-900 md:text-6xl">
               Assign once. Automate the rest.
             </h1>
@@ -22,10 +26,16 @@ export default function Home() {
               TaskFlow manages task assignment, reminders, calendar sync, proof review, approvals, and accountability across teams with secure organization-level controls.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
-              <Link href="/login" className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-700">
+              <Link
+                href="/login"
+                className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-700"
+              >
                 Sign in
               </Link>
-              <Link href="/dashboard" className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <Link
+                href="/dashboard"
+                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
                 Open dashboard
               </Link>
             </div>

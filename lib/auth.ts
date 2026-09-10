@@ -93,14 +93,14 @@ export async function requireUser() {
   return user;
 }
 
-export async function requireOrganizationMembership() {
+export async function requireOrganizationMembership(): Promise<SessionUser & { organizationId: string }> {
   const user = await requireUser();
 
   if (!user.organizationId) {
     throw new Error("Organization is required to access this feature.");
   }
 
-  return user;
+  return user as SessionUser & { organizationId: string };
 }
 
 export async function requirePermission(permission: string) {
