@@ -1,48 +1,86 @@
 import { prisma } from "@/lib/prisma";
-import { NotificationCategory, NotificationPriority } from "@prisma/client";
+import { NotificationCategory, NotificationPriority, Prisma } from "@prisma/client";
 
-interface CreateNotificationParams {
-  organizationId: string;
+export interface CreateNotificationParams {
   userId: string;
-  actorId?: string;
-  category: NotificationCategory;
-  priority?: NotificationPriority;
-  title: string;
+  organizationId?: string | null;
+  actorId?: string | null;
+  taskId?: string | null;
+  title?: string | null;
   content: string;
-  actionUrl?: string;
-  entityType?: "TASK" | "CHAT" | "GMAIL" | "PROJECT";
-  entityId?: string;
-  metadata?: any;
+  type?: string;
+  category?: NotificationCategory;
+  priority?: NotificationPriority;
+  link?: string | null;
+  actionUrl?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  metadata?: Prisma.InputJsonValue | null;
 }
 
-export async function dispatchNotification(params: CreateNotificationParams) {
-  // 1. Smart Deduplication: Prevent duplicate notifications in a short timeframe
-  const recentDuplicate = await prisma.notification.findFirst({
-    where: {
-      userId: params.userId,
-      entityId: params.entityId,
-      category: params.category,
-      createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) }, // within last 5 minutes
+export async function createNotification(params: CreateNotificationParams) {
+  const {
+    userId,
+    organizationId,
+    actorId,
+    taskId,
+    title,
+    content,
+    type = "GENERAL",
+    category = "ALL",
+    priority = "MEDIUM",
+    link,
+    actionUrl,
+    entityType,
+    entityId,
+    metadata,
+  } = params;
+
+  return await prisma.notification.create({
+    data: {
+      userId,
+      organizationId: organizationId || undefined,
+      actorId: actorId || null,
+      taskId: taskId || null,
+      title: title || null,
+      content,
+      type,
+      category,
+      priority,
+      link: link || actionUrl || null,
+      entityType: entityType || null,
+      entityId: entityId || null,
+      metadata: metadata !== undefined ? metadata : undefined,
     },
   });
+}
 
-  if (recentDuplicate) {
-    return recentDuplicate;
+export async function markNotificationAsRead(notificationId: string, userId: string) {
+  return await prisma.notification.updateMany({
+    where: {
+      id: notificationId,
+      userId,
+    },
+    data: {
+      read: true,
+    },
+  });
+}
+
+export async function markAllNotificationsAsRead(userId: string, organizationId?: string) {
+  const where: Prisma.NotificationWhereInput = {
+    userId,
+    read: false,
+  };
+
+  if (organizationId) {
+    where.organizationId = organizationId;
   }
 
-  return prisma.notification.create({
+  return await prisma.notification.updateMany({
+    where,
     data: {
-      organizationId: params.organizationId,
-      userId: params.userId,
-      actorId: params.actorId,
-      category: params.category,
-      priority: params.priority || NotificationPriority.MEDIUM,
-      title: params.title,
-      content: params.content,
-      actionUrl: params.actionUrl,
-      entityType: params.entityType,
-      entityId: params.entityId,
-      metadata: params.metadata || {},
+      read: true,
     },
   });
 }

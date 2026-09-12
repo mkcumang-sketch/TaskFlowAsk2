@@ -42,11 +42,15 @@ export function TeamDirectoryClient({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [departmentName, setDepartmentName] = useState("");
-  const [password, setPassword] = useState("");
   const [roleName, setRoleName] = useState("EMPLOYEE");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdHandle, setCreatedHandle] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const isAdmin = ["ADMIN", "SUPER_ADMIN", "OWNER"].includes(
+    (currentUserRole || "").toUpperCase()
+  );
 
   const filteredMembers = members.filter((m) => {
     if (!searchQuery.trim()) return true;
@@ -78,9 +82,8 @@ export function TeamDirectoryClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          email: email.trim(),
+          email: email.trim().toLowerCase(),
           departmentName: departmentName.trim(),
-          password: password.trim() || undefined,
           roleName,
         }),
       });
@@ -92,11 +95,10 @@ export function TeamDirectoryClient({
         setName("");
         setEmail("");
         setDepartmentName("");
-        setPassword("");
         router.refresh();
       } else {
         const err = await res.json();
-        alert(err.error || "Failed to create account");
+        alert(err.error || "Failed to authorize employee");
       }
     } catch {
       alert("Network communication error");
@@ -105,13 +107,38 @@ export function TeamDirectoryClient({
     }
   };
 
+  const handleRevokeAccess = async (member: TeamMemberItem) => {
+    if (!confirm(`Are you sure you want to revoke Google access for ${member.name} (${member.email})? They will no longer be able to log in.`)) {
+      return;
+    }
+
+    setDeletingId(member.id);
+    try {
+      const res = await fetch(`/api/team/${member.id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        setMembers((prev) => prev.filter((m) => m.id !== member.id));
+        router.refresh();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to revoke access");
+      }
+    } catch {
+      alert("Network error while attempting to revoke access");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="w-full space-y-8 font-sans select-none relative">
-      {/* 🔮 Background Magical Ambient Glow */}
+      {/* 🔮 Background Aurora Ambient Graphics */}
       <div className="pointer-events-none absolute -top-12 left-1/4 h-80 w-80 rounded-full bg-purple-500/15 blur-[120px]" />
       <div className="pointer-events-none absolute top-1/2 -right-12 h-96 w-96 rounded-full bg-indigo-500/15 blur-[140px]" />
 
-      {/* 🎉 Interactive Created Notification Banner */}
+      {/* 🎉 Interactive Created Banner */}
       {createdHandle && (
         <div className="relative overflow-hidden rounded-[30px] border-2 border-emerald-400/80 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 p-5 shadow-xl shadow-emerald-500/15 animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -121,24 +148,20 @@ export function TeamDirectoryClient({
               </span>
               <div>
                 <h4 className="text-base font-black text-emerald-950">
-                  Agent Profile Initialized & Ready!
+                  Google Workspace Access Granted!
                 </h4>
                 <p className="text-xs font-semibold text-emerald-800">
-                  Unique Assignment Code:{" "}
+                  Employee can now sign in via <strong>Continue with Google</strong>. Handle:{" "}
                   <button
                     type="button"
                     onClick={() => handleCopyCode(createdHandle)}
                     className="ml-1 inline-flex items-center gap-1.5 rounded-xl bg-emerald-200/90 px-3 py-1 font-mono text-sm font-black text-emerald-950 shadow-xs hover:bg-emerald-300 transition cursor-pointer"
-                    title="Click to copy"
                   >
                     <span>@{createdHandle}</span>
                     <span className="text-[11px] font-sans font-bold text-emerald-800">
                       {copiedCode === createdHandle ? "✓ Copied!" : "📋 Copy"}
                     </span>
                   </button>
-                  <span className="ml-2 font-normal text-emerald-700">
-                    (Use @{createdHandle} in Quick Capture to instantly route tasks)
-                  </span>
                 </p>
               </div>
             </div>
@@ -152,7 +175,7 @@ export function TeamDirectoryClient({
         </div>
       )}
 
-      {/* ▦ Core 2-Column Responsive Workspace Grid */}
+      {/* ▦ Core Workspace Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
         {/* PANEL 1: Active Member Directory (7 Cols) */}
         <div className="lg:col-span-7 rounded-[38px] border border-white/80 bg-white/95 p-7 md:p-8 shadow-2xl shadow-slate-200/60 backdrop-blur-2xl space-y-6">
@@ -165,19 +188,19 @@ export function TeamDirectoryClient({
                 </h3>
               </div>
               <p className="text-xs font-medium text-slate-500 mt-1">
-                Colleagues with unique handles, notifications, and departments.
+                Authorized Google accounts with @handles, notification pipelines, and departments.
               </p>
             </div>
             <span className="rounded-2xl bg-gradient-to-tr from-purple-100 to-indigo-100 px-4 py-1.5 text-xs font-black text-purple-900 font-mono shadow-xs border border-purple-200/70">
-              {members.length} Agents Enrolled
+              {members.length} Enrolled
             </span>
           </div>
 
-          {/* Search Input with Neon Violet Focus Ring */}
+          {/* Search Bar */}
           <div className="relative">
             <input
               type="text"
-              placeholder="Search by name, email, department, or @handle..."
+              placeholder="Search by name, Google email, department, or @handle..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full h-13 rounded-2xl border-2 border-purple-200/90 bg-purple-50/20 px-5 text-sm font-bold text-slate-800 placeholder-slate-400 outline-none focus:border-purple-600 focus:bg-white focus:ring-4 focus:ring-purple-400/20 shadow-xs transition-all"
@@ -189,7 +212,7 @@ export function TeamDirectoryClient({
           <div className="space-y-3.5 max-h-[520px] overflow-y-auto pr-1">
             {filteredMembers.length === 0 ? (
               <div className="py-24 text-center text-sm font-semibold text-slate-400">
-                No matching agents found in directory.
+                No matching authorized accounts found.
               </div>
             ) : (
               filteredMembers.map((m) => {
@@ -197,6 +220,8 @@ export function TeamDirectoryClient({
                 const roleClean = m.role?.name || "EMPLOYEE";
                 const handleRaw = m.memberCode || m.name.replace(/[^a-zA-Z]/g, "").toLowerCase();
                 const isCopied = copiedCode === handleRaw;
+                const isMe = m.id === currentUserId;
+                const isDeleting = deletingId === m.id;
 
                 return (
                   <div
@@ -204,9 +229,8 @@ export function TeamDirectoryClient({
                     className="group flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/60 p-4.5 shadow-sm hover:border-purple-300 hover:bg-white hover:shadow-xl hover:-translate-y-1 transition-all duration-200"
                   >
                     <div className="flex items-center gap-4">
-                      {/* 3D Vibrant Metallic Avatar */}
                       <div className="flex h-13 w-13 items-center justify-center rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-purple-700 text-lg font-black text-white shadow-lg shadow-purple-500/30 group-hover:scale-105 transition-transform">
-                        {m.name.charAt(0).toUpperCase()}
+                        {m.name ? m.name.charAt(0).toUpperCase() : "U"}
                       </div>
 
                       <div className="space-y-0.5">
@@ -215,7 +239,6 @@ export function TeamDirectoryClient({
                             {m.name}
                           </h4>
 
-                          {/* Clickable Quick-Copy Tag */}
                           <button
                             type="button"
                             onClick={() => handleCopyCode(handleRaw)}
@@ -238,8 +261,8 @@ export function TeamDirectoryClient({
                     </div>
 
                     <div className="flex items-center gap-2.5">
-                      <span className="rounded-2xl bg-purple-50 px-3.5 py-1.5 text-xs font-black text-purple-800 border border-purple-200/80 shadow-2xs">
-                        {activeTasks} Active Tasks
+                      <span className="rounded-2xl bg-purple-50 px-3 py-1.5 text-xs font-black text-purple-800 border border-purple-200/80 shadow-2xs">
+                        {activeTasks} Tasks
                       </span>
 
                       <span
@@ -251,6 +274,19 @@ export function TeamDirectoryClient({
                       >
                         {roleClean}
                       </span>
+
+                      {/* 🚫 Revoke Access Button for Admins */}
+                      {isAdmin && !isMe && (
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeAccess(m)}
+                          disabled={isDeleting}
+                          className="h-9 px-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white hover:border-rose-600 text-xs font-black transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                          title="Revoke Google Access"
+                        >
+                          {isDeleting ? "Revoking..." : "Revoke"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -259,21 +295,21 @@ export function TeamDirectoryClient({
           </div>
         </div>
 
-        {/* PANEL 2: Add New Agent / Employee Form (5 Cols) */}
+        {/* PANEL 2: Authorize New Employee (5 Cols) */}
         <div className="lg:col-span-5 rounded-[38px] border border-white/80 bg-white/95 p-7 md:p-8 shadow-2xl shadow-slate-200/60 backdrop-blur-2xl space-y-5">
           <div className="border-b border-slate-100 pb-4">
             <h3 className="text-xl font-black text-slate-900 tracking-tight">
-              Add New Agent / Employee
+              Authorize Employee Email
             </h3>
             <p className="text-xs font-medium text-slate-500 mt-1">
-              Creates account, issues unique @handle, connects department, and generates login keys.
+              Whitelist official Google accounts for one-click OAuth login and generate @handles.
             </p>
           </div>
 
           <form onSubmit={handleCreateMember} className="space-y-4.5">
             <div>
               <label className="text-xs font-black uppercase tracking-wider text-slate-600">
-                Agent Full Name *
+                Employee Full Name *
               </label>
               <input
                 type="text"
@@ -287,18 +323,18 @@ export function TeamDirectoryClient({
 
             <div>
               <label className="text-xs font-black uppercase tracking-wider text-slate-600">
-                Official Work Email *
+                Authorized Google Email *
               </label>
               <input
                 type="email"
                 required
-                placeholder="e.g. umang@taskflow.com"
+                placeholder="e.g. employee@company.com or @gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-1.5 w-full h-12 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-sm font-bold text-slate-900 placeholder-slate-400 outline-none focus:border-purple-600 focus:bg-white focus:ring-4 focus:ring-purple-400/15 shadow-xs transition"
               />
-              <span className="text-[11px] font-semibold text-slate-400 mt-1 block">
-                Direct task alert notifications and emergency broadcasts route here.
+              <span className="text-[11px] font-semibold text-purple-700 mt-1.5 block">
+                🔒 Zero passwords needed. They log in directly using this Google account.
               </span>
             </div>
 
@@ -332,21 +368,7 @@ export function TeamDirectoryClient({
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-black uppercase tracking-wider text-slate-600">
-                Temporary Password
-              </label>
-              <input
-                type="password"
-                placeholder="•••••••• (Default: Taskflow@2026)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1.5 w-full h-12 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-sm font-bold text-slate-900 placeholder-slate-400 outline-none focus:border-purple-600 focus:bg-white focus:ring-4 focus:ring-purple-400/15 shadow-xs transition"
-              />
-            </div>
-
-            {/* 🚀 Magical Shimmer Button */}
-            <div className="pt-2">
+            <div className="pt-3">
               <Button
                 type="submit"
                 disabled={isSubmitting || !name.trim() || !email.trim()}
@@ -355,10 +377,10 @@ export function TeamDirectoryClient({
                 {isSubmitting ? (
                   <span className="flex items-center gap-2">
                     <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                    Generating Unique Handle...
+                    Enrolling Account...
                   </span>
                 ) : (
-                  "✨ Create Agent Account & Generate Handle"
+                  "✨ Authorize Account & Generate Handle"
                 )}
               </Button>
             </div>

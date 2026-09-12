@@ -1,83 +1,145 @@
-import { google } from "googleapis";
 import { NextResponse } from "next/server";
-import { createSessionToken, setSessionCookie } from "@/lib/auth";
 import { getGoogleOAuthClient, saveGoogleTokens } from "@/lib/google";
+import { google } from "googleapis";
 import { prisma } from "@/lib/prisma";
+import { createSessionToken, SESSION_COOKIE } from "@/lib/auth";
 
-const DASHBOARD_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "OWNER", "MANAGER"]);
-
-function loginError(request: Request, code: string) {
-  const url = new URL("/login", request.url);
-  url.searchParams.set("error", code);
-  return NextResponse.redirect(url);
-}
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get("code");
-  const returnedState = requestUrl.searchParams.get("state");
-  const stateCookie = request.headers.get("cookie")?.match(/(?:^|;\s*)taskflow_oauth_state=([^;]*)/)?.[1];
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get("code");
+  const error = searchParams.get("error");
 
-  if (!code || !returnedState || !stateCookie || returnedState !== stateCookie) {
-    return loginError(request, "invalid_oauth_state");
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  if (error || !code) {
+    return NextResponse.redirect(`${appUrl}/login?error=oauth_cancelled`);
   }
 
   try {
-    const oauth2Client = getGoogleOAuthClient();
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    const { data: profile } = await google.oauth2({ version: "v2", auth: oauth2Client }).userinfo.get();
+    const client = getGoogleOAuthClient();
 
-    if (!profile.id || !profile.email) {
-      return loginError(request, "google_profile_missing");
+    // 1. Exchange auth code for tokens
+    const { tokens } = await client.getToken(code);
+    client.setCredentials(tokens);
+
+    // 2. Fetch Google profile
+    const oauth2 = google.oauth2({ version: "v2", auth: client });
+    const { data: profile } = await oauth2.userinfo.get();
+
+    if (!profile.email) {
+      return NextResponse.redirect(`${appUrl}/login?error=no_email_provided`);
     }
 
-    const email = profile.email.trim().toLowerCase();
-    let user = await prisma.user.findUnique({ where: { email }, include: { role: true } });
+    const email = profile.email.toLowerCase().trim();
+    const name = profile.name || email.split("@")[0];
+    const avatarUrl = profile.picture || null;
 
-    if (!user) {
-      const organization = await prisma.organization.upsert({
-        where: { slug: "ask2global" },
-        update: {},
-        create: { name: "Ask2Global", slug: "ask2global" },
+    // 3. Resolve Admin Whitelist from .env
+    const rawAdminEmails = process.env.ADMIN_EMAILS || "";
+    const adminEmails = rawAdminEmails
+      .toLowerCase()
+      .split(",")
+      .map((e) => e.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+
+    const isSystemAdmin = adminEmails.some((admin) => admin === email);
+
+    // 4. Ensure Organization & System Roles exist
+    let organization = await prisma.organization.findFirst();
+    if (!organization) {
+      organization = await prisma.organization.create({
+        data: { name: "TaskFlow HQ", slug: "taskflow-hq" },
       });
-      const employeeRole = await prisma.role.upsert({
-        where: { name: "EMPLOYEE" },
-        update: {},
-        create: { name: "EMPLOYEE" },
-      });
-      user = await prisma.user.create({
+    }
+
+    let adminRole = await prisma.role.findFirst({ where: { name: "ADMIN" } });
+    if (!adminRole) {
+      adminRole = await prisma.role.create({ data: { name: "ADMIN" } });
+    }
+
+    let employeeRole = await prisma.role.findFirst({ where: { name: "EMPLOYEE" } });
+    if (!employeeRole) {
+      employeeRole = await prisma.role.create({ data: { name: "EMPLOYEE" } });
+    }
+
+    // 5. Query user in DB
+    let user = await prisma.user.findUnique({
+      where: { email },
+      include: { role: true },
+    });
+
+    if (isSystemAdmin) {
+      if (!user) {
+        const cleanName = name.replace(/[^a-zA-Z]/g, "").slice(0, 6).toUpperCase() || "ADMIN";
+        user = await prisma.user.create({
+          data: {
+            name,
+            email,
+            avatarUrl,
+            memberCode: `${cleanName}ADM1`,
+            roleId: adminRole.id,
+            organizationId: organization.id,
+            presenceStatus: "ONLINE",
+          },
+          include: { role: true },
+        });
+      } else if (user.roleId !== adminRole.id) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { roleId: adminRole.id, avatarUrl: avatarUrl || user.avatarUrl },
+          include: { role: true },
+        });
+      }
+    } else {
+      if (!user) {
+        return NextResponse.redirect(`${appUrl}/login?error=access_denied_not_invited`);
+      }
+
+      user = await prisma.user.update({
+        where: { id: user.id },
         data: {
-          email,
-          name: profile.name || profile.given_name || "Google User",
-          avatarUrl: profile.picture || null,
-          organizationId: organization.id,
-          roleId: employeeRole.id,
+          name: user.name || name,
+          avatarUrl: avatarUrl || user.avatarUrl,
+          presenceStatus: "ONLINE",
+          lastSeenAt: new Date(),
         },
         include: { role: true },
       });
     }
 
+    // 6. Save Google account tokens for integrations
     await saveGoogleTokens({
       userId: user.id,
-      providerAccountId: profile.id,
       tokens,
+      providerAccountId: profile.id ?? null,
     });
 
-    const role = user.role?.name ?? null;
-    const token = await createSessionToken({
+    // 7. Generate JWT token using shared auth helper
+    const sessionToken = await createSessionToken({
       id: user.id,
       email: user.email,
       name: user.name,
       organizationId: user.organizationId,
-      role,
+      role: user.role?.name || "EMPLOYEE",
     });
-    const destination = role && DASHBOARD_ROLES.has(role) ? "/dashboard" : "/my-day";
-    const response = NextResponse.redirect(new URL(destination, request.url));
-    response.cookies.delete("taskflow_oauth_state");
-    return setSessionCookie(response, token);
-  } catch (error) {
-    console.error("Google OAuth callback failed:", error);
-    return loginError(request, "oauth_failed");
+
+    // 8. Redirect directly to /today (landing page in your middleware)
+    const response = NextResponse.redirect(`${appUrl}/today`);
+
+    // Match cookie name and options expected by middleware and lib/auth.ts
+    response.cookies.set(SESSION_COOKIE, sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+      sameSite: "lax",
+    });
+
+    return response;
+  } catch (err) {
+    console.error("Google OAuth Callback Error:", err);
+    return NextResponse.redirect(`${appUrl}/login?error=authentication_failed`);
   }
 }
