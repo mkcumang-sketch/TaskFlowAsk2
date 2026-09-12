@@ -10,7 +10,6 @@ export default async function TasksPage() {
   const userRole = (user.role || "").toUpperCase();
   const isPrivileged = ["SUPER_ADMIN", "ADMIN", "OWNER", "MANAGER"].includes(userRole);
 
-  // Filter tasks based on role
   const taskWhereClause: any = {
     organizationId,
     status: { notIn: ["ARCHIVED"] },
@@ -23,14 +22,15 @@ export default async function TasksPage() {
     ];
   }
 
-  const [tasks, projects, teamMembers] = await Promise.all([
+  const [tasks, projects, teamMembers, departments] = await Promise.all([
     prisma.task.findMany({
       where: taskWhereClause,
       include: {
         project: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
         assignees: {
           include: {
-            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+            user: { select: { id: true, name: true, email: true, avatarUrl: true, departmentId: true } },
           },
         },
         subtasks: {
@@ -49,14 +49,20 @@ export default async function TasksPage() {
 
     prisma.user.findMany({
       where: { organizationId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, departmentId: true },
+      orderBy: { name: "asc" },
+    }),
+
+    prisma.department.findMany({
+      where: { organizationId },
+      select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
   ]);
 
   return (
     <AppShell
-      title="Task Central"
+      title="Task & Kanban Central"
       subtitle={
         isPrivileged
           ? "Manage, triage, prioritize, and allocate tasks across the entire team."
@@ -68,6 +74,7 @@ export default async function TasksPage() {
         initialTasks={tasks}
         projects={projects}
         teamMembers={teamMembers}
+        departments={departments}
         currentUserId={user.id}
       />
     </AppShell>
