@@ -210,7 +210,7 @@ export function SPSidebar({
             </div>
           )}
           
-          {navItem("/brain-dump", "Brain Dump", "💡")}
+         
         </div>
 
         {/* 4. Organization & Portfolio */}

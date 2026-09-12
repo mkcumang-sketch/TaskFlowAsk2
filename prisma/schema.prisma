@@ -67,12 +67,12 @@ enum UserPresenceStatus {
 // --------------------------------------------------------
 
 model Organization {
-  id                  String                @id @default(auto()) @map("_id") @db.ObjectId
+  id                  String               @id @default(auto()) @map("_id") @db.ObjectId
   name                String
-  slug                String                @unique
-  timezone            String                @default("UTC")
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  slug                String               @unique
+  timezone            String               @default("UTC")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   users               User[]
   departments         Department[]
@@ -92,7 +92,6 @@ model Organization {
   recurringTemplates  RecurringTemplate[]
   habits              Habit[]
   timeBlocks          TimeBlock[]
-  brainDumpNotes      BrainDumpNote[]
   conversations       Conversation[]
   activityLogs        ActivityLog[]
 }
@@ -115,31 +114,31 @@ model Role {
 }
 
 model User {
-  id                   String                 @id @default(auto()) @map("_id") @db.ObjectId
+  id                   String               @id @default(auto()) @map("_id") @db.ObjectId
   name                 String
-  email                String                 @unique
-  memberCode           String?                // Unique handle (e.g. Umang2390) managed safely without MongoDB null collision
-  passwordHash         String?
+  email                String               @unique
+  memberCode           String?              // Unique handle (e.g. Umang2390)
+  passwordHash         String?              // Nullable for OAuth-exclusive authentication
   avatarUrl            String?
-  timezone             String                 @default("UTC")
-  presenceStatus       UserPresenceStatus     @default(OFFLINE)
-  lastSeenAt           DateTime?              @default(now())
+  timezone             String               @default("UTC")
+  presenceStatus       UserPresenceStatus   @default(OFFLINE)
+  lastSeenAt           DateTime?            @default(now())
 
-  organizationId       String?                @db.ObjectId
-  organization         Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  roleId               String?                @db.ObjectId
-  role                 Role?                  @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  teamId               String?                @db.ObjectId
-  team                 Team?                  @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  departmentId         String?                @db.ObjectId
-  department           Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  organizationId       String?              @db.ObjectId
+  organization         Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  roleId               String?              @db.ObjectId
+  role                 Role?                @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  teamId               String?              @db.ObjectId
+  team                 Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  departmentId         String?              @db.ObjectId
+  department           Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
-  // Task & Project relations
-  tasksCreated         Task[]                 @relation("TaskCreator")
-  taskAssignments     TaskAssignee[]
+  // Task & Project Relations
+  tasksCreated         Task[]               @relation("TaskCreator")
+  taskAssignments      TaskAssignee[]
   comments             Comment[]
   notifications        Notification[]
   activityLogs         ActivityLog[]
@@ -153,19 +152,18 @@ model User {
   sessions             Session[]
   pushSubscriptions    PushSubscription[]
   emailNotifications   EmailNotification[]
-  commentMentions      CommentMention[]       @relation("MentionedUser")
+  commentMentions      CommentMention[]     @relation("MentionedUser")
   attachments          Attachment[]
-  recurringTemplates   RecurringTemplate[]    @relation("RecurringTemplateCreator")
+  recurringTemplates   RecurringTemplate[]  @relation("RecurringTemplateCreator")
   habits               Habit[]
   habitLogs            HabitLog[]
   timeBlocks           TimeBlock[]
-  brainDumpNotes       BrainDumpNote[]
   gmailAccounts        GmailAccount[]
 
   // Real-time Chat Relations
-  messagesSent         Message[]              @relation("MessageSender")
+  messagesSent            Message[]                 @relation("MessageSender")
   conversationMemberships ConversationParticipant[]
-  createdConversations Conversation[]        @relation("ConversationCreator")
+  createdConversations    Conversation[]            @relation("ConversationCreator")
 
   @@index([organizationId, presenceStatus])
   @@index([departmentId])
@@ -189,15 +187,15 @@ model Department {
 }
 
 model Team {
-  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
   name           String
-  organizationId String         @db.ObjectId
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  departmentId   String?        @db.ObjectId
-  department     Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  organizationId String        @db.ObjectId
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departmentId   String?       @db.ObjectId
+  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   members        User[]
   tasks          Task[]
-  createdAt      DateTime       @default(now())
+  createdAt      DateTime      @default(now())
 
   @@index([organizationId])
 }
@@ -281,7 +279,6 @@ model Task {
   escalationRules     EscalationRule[]
   timeBlocks          TimeBlock[]
   recurringInstances  RecurringTemplate[]  @relation("RecurringTemplateTask")
-  brainDumpNotes      BrainDumpNote[]
   gmailThreads        GmailThread[]
   messages            Message[]
 
@@ -331,28 +328,28 @@ model Comment {
 // --------------------------------------------------------
 
 model Notification {
-  id             String                @id @default(auto()) @map("_id") @db.ObjectId
-  type           String                @default("GENERAL")
-  category       NotificationCategory  @default(ALL)
-  priority       NotificationPriority  @default(MEDIUM)
+  id             String               @id @default(auto()) @map("_id") @db.ObjectId
+  type           String               @default("GENERAL")
+  category       NotificationCategory @default(ALL)
+  priority       NotificationPriority @default(MEDIUM)
   content        String
   title          String?
-  read           Boolean               @default(false)
-  pinned         Boolean               @default(false)
-  archived       Boolean               @default(false)
+  read           Boolean              @default(false)
+  pinned         Boolean              @default(false)
+  archived       Boolean              @default(false)
   snoozedUntil   DateTime?
-  userId         String                @db.ObjectId
-  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  actorId        String?               @db.ObjectId
-  taskId         String?               @db.ObjectId
-  task           Task?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  organizationId String?               @db.ObjectId
-  organization   Organization?         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String               @db.ObjectId
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actorId        String?              @db.ObjectId
+  taskId         String?              @db.ObjectId
+  task           Task?                @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  organizationId String?              @db.ObjectId
+  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   link           String?
   entityType     String?
   entityId       String?
   metadata       Json?
-  createdAt      DateTime              @default(now())
+  createdAt      DateTime             @default(now())
 
   @@index([userId, read, archived])
   @@index([organizationId, category])
@@ -513,39 +510,23 @@ model TimeBlock {
   @@index([userId, startTime])
 }
 
-model BrainDumpNote {
-  id              String       @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId  String       @db.ObjectId
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  userId          String       @db.ObjectId
-  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content         String
-  isConverted     Boolean      @default(false)
-  convertedTaskId String?      @db.ObjectId
-  convertedTask   Task?        @relation(fields: [convertedTaskId], references: [id], onDelete: SetNull)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
-  @@index([userId, isConverted])
-}
-
 model RecurringTemplate {
-  id                String       @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId    String       @db.ObjectId
-  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  creatorId         String?      @db.ObjectId
-  creator           User?        @relation("RecurringTemplateCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  id                String               @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId    String               @db.ObjectId
+  organization      Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creatorId         String?              @db.ObjectId
+  creator           User?                @relation("RecurringTemplateCreator", fields: [creatorId], references: [id], onDelete: SetNull)
   title             String
   description       String?
   frequency         String
   timeOfDay         String?
   subtaskTemplates  String[]
-  active            Boolean      @default(true)
+  active            Boolean              @default(true)
   lastGeneratedDate String?
-  generatedTaskId   String?      @db.ObjectId
-  generatedTask     Task?        @relation("RecurringTemplateTask", fields: [generatedTaskId], references: [id], onDelete: SetNull)
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  generatedTaskId   String?              @db.ObjectId
+  generatedTask     Task?                @relation("RecurringTemplateTask", fields: [generatedTaskId], references: [id], onDelete: SetNull)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   @@index([organizationId, active])
 }
@@ -628,15 +609,15 @@ model Automation {
 }
 
 model Goal {
-  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
   title          String
   targetValue    Int
-  currentValue   Int           @default(0)
-  ownerId        String?       @db.ObjectId
-  owner          User?         @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  organizationId String        @db.ObjectId
-  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime      @default(now())
+  currentValue   Int          @default(0)
+  ownerId        String?      @db.ObjectId
+  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  organizationId String       @db.ObjectId
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
 }
 
 model Approval {
