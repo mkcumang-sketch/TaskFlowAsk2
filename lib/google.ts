@@ -65,10 +65,10 @@ export function getGoogleOAuthClient() {
 
 export const oauth2Client = getGoogleOAuthClient();
 
-// Non-sensitive identity scopes eliminate the Google unverified warning screen
+// Non-sensitive identity scopes (keeps login verified and warning-free)
 export const GOOGLE_AUTH_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile"
+  "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
 export function buildGoogleAuthUrl() {
@@ -142,6 +142,29 @@ export async function saveGoogleTokens({
       expiresAt,
     },
   });
+
+  await prisma.calendarIntegration.upsert({
+    where: {
+      userId_provider: {
+        userId,
+        provider: "google",
+      },
+    },
+    update: {
+      accessToken,
+      refreshToken: refreshToken ?? undefined,
+      expiresAt,
+      status: "CONNECTED",
+    },
+    create: {
+      userId,
+      provider: "google",
+      accessToken,
+      refreshToken,
+      expiresAt,
+      status: "CONNECTED",
+    },
+  });
 }
 
 export async function disconnectGoogleAccount(userId: string) {
@@ -158,4 +181,54 @@ export async function disconnectGoogleAccount(userId: string) {
       provider: "google",
     },
   });
+}
+
+export async function getGoogleCalendarClientForUser(userId: string) {
+  const integration = await prisma.calendarIntegration.findUnique({
+    where: {
+      userId_provider: {
+        userId,
+        provider: "google",
+      },
+    },
+  });
+
+  if (!integration || !integration.accessToken) {
+    throw new Error("Google Calendar is not connected.");
+  }
+
+  const client = getGoogleOAuthClient();
+  const accessToken = decryptGoogleToken(integration.accessToken);
+  const refreshToken = integration.refreshToken ? decryptGoogleToken(integration.refreshToken) : null;
+
+  client.setCredentials({
+    access_token: accessToken ?? undefined,
+    refresh_token: refreshToken ?? undefined,
+  });
+
+  if (integration.expiresAt && integration.expiresAt.getTime() <= Date.now() + 60_000 && refreshToken) {
+    const refreshed = await client.refreshAccessToken();
+    const nextAccessToken = refreshed.credentials.access_token;
+    const nextRefreshToken = refreshed.credentials.refresh_token ?? refreshToken;
+    const nextExpiryDate = refreshed.credentials.expiry_date
+      ? new Date(refreshed.credentials.expiry_date)
+      : integration.expiresAt;
+
+    await prisma.calendarIntegration.update({
+      where: { id: integration.id },
+      data: {
+        accessToken: nextAccessToken ? encryptGoogleToken(nextAccessToken) : integration.accessToken,
+        refreshToken: nextRefreshToken ? encryptGoogleToken(nextRefreshToken) : integration.refreshToken,
+        expiresAt: nextExpiryDate,
+        status: "CONNECTED",
+      },
+    });
+
+    client.setCredentials({
+      access_token: nextAccessToken ?? undefined,
+      refresh_token: nextRefreshToken ?? undefined,
+    });
+  }
+
+  return google.calendar({ version: "v3", auth: client });
 }
