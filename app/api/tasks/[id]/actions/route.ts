@@ -1,116 +1,117 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { canTransition, TaskState } from "@/lib/task-workflow";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
+  { params }: { params: Promise<{ id?: string; taskId?: string }> }
 ) {
   try {
     const session = await getSession();
-    if (!session?.organizationId) {
+    if (!session || !session.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const resolvedParams = await params;
-    const taskId = resolvedParams.id;
-    const body = await request.json();
-    const { action, responseNote, fileUrl, fileName } = body;
+    const taskId = resolvedParams.id || resolvedParams.taskId;
 
-    const task = await prisma.task.findFirst({
-      where: { id: taskId, organizationId: session.organizationId },
-      include: { creator: true },
+    if (!taskId) {
+      return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const action = body.action || body.status || body.nextStatus;
+    const feedback = body.feedback || body.comment || body.reason || "";
+
+    // 1. Fetch current task
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { assignments: true },
     });
 
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // 1. Action: Employee starts work
-    if (action === "START_WORK") {
-      const updated = await prisma.task.update({
-        where: { id: taskId },
-        data: {
-          status: "IN_PROGRESS",
-          startAt: new Date(),
-        },
-      });
+    // 2. Resolve Target Next State
+    let nextState: TaskState = "IN_PROGRESS";
 
-      // Send real-time in-app notification to the Admin/Task Creator
-      if (task.creatorId && task.creatorId !== session.id) {
-        await prisma.notification.create({
-          data: {
-            organizationId: session.organizationId,
-            userId: task.creatorId,
-            actorId: session.id,
-            category: "TASKS",
-            priority: "MEDIUM",
-            title: `Work Started: ${task.title}`,
-            content: `${session.name || session.email || "Employee"} has started work on "${task.title}".`,
-            link: `/tasks/${task.id}`,
-            entityType: "TASK",
-            entityId: task.id,
-          },
-        });
-      }
-
-      return NextResponse.json(updated);
+    if (action === "APPROVE" || action === "APPROVED") {
+      nextState = "APPROVED";
+    } else if (
+      action === "REJECT" || 
+      action === "REJECTED" || 
+      action === "REQUEST_CHANGES" || 
+      action === "REWORK"
+    ) {
+      nextState = "REJECTED";
+    } else if (action === "SUBMIT" || action === "REVIEW") {
+      nextState = "REVIEW";
+    } else if (action === "COMPLETE" || action === "COMPLETED") {
+      nextState = "COMPLETED";
+    } else {
+      nextState = action as TaskState;
     }
 
-    // 2. Action: Employee submits deliverable notes & file attachment
-    if (action === "SUBMIT_WORK") {
-      if (fileUrl) {
-        await prisma.attachment.create({
-          data: {
-            taskId: task.id,
-            userId: session.id,
-            name: fileName || "deliverable-attachment",
-            url: fileUrl,
-          },
-        });
-      }
+    // 3. Check Transition Safety with Role Override
+    const currentState = task.status as TaskState;
+    const isAllowed = canTransition(currentState, nextState, session.role);
 
-      if (responseNote) {
-        await prisma.comment.create({
-          data: {
-            taskId: task.id,
-            authorId: session.id,
-            content: `Deliverable Response:\n${responseNote}`,
-          },
-        });
-      }
-
-      const updated = await prisma.task.update({
-        where: { id: taskId },
-        data: {
-          status: "REVIEW",
-        },
-      });
-
-      // Alert the Admin/Task Creator to review deliverable
-      if (task.creatorId) {
-        await prisma.notification.create({
-          data: {
-            organizationId: session.organizationId,
-            userId: task.creatorId,
-            actorId: session.id,
-            category: "APPROVALS",
-            priority: "HIGH",
-            title: `Deliverable Submitted: ${task.title}`,
-            content: `${session.name || session.email || "Employee"} has completed work and submitted response files for review.`,
-            link: `/tasks/${task.id}`,
-            entityType: "TASK",
-            entityId: task.id,
-          },
-        });
-      }
-
-      return NextResponse.json(updated);
+    if (!isAllowed) {
+      return NextResponse.json(
+        { error: `Cannot transition task from ${currentState} to ${nextState}` },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch (error) {
-    console.error("Action handler error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    // 4. Update Task in DB (No complex transactions that fail in MongoDB)
+    const updated = await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: nextState,
+        completedAt: nextState === "APPROVED" || nextState === "COMPLETED" ? new Date() : null,
+      },
+    });
+
+    // 5. Store Review / Rejection Feedback if provided
+    if (feedback && feedback.trim()) {
+      await prisma.taskComment.create({
+        data: {
+          taskId: task.id,
+          userId: session.id,
+          content: `[${nextState}] Feedback: ${feedback.trim()}`,
+        },
+      }).catch(() => null);
+    }
+
+    // 6. Notify Assignee
+    const primaryAssignee = task.assignments?.[0]?.userId;
+    if (primaryAssignee && primaryAssignee !== session.id) {
+      await prisma.notification.create({
+        data: {
+          userId: primaryAssignee,
+          title: `Task ${nextState === "APPROVED" ? "Approved" : "Sent Back for Rework"}`,
+          content: `Task "${task.title}" status changed to ${nextState}. ${feedback ? `Feedback: ${feedback}` : ""}`,
+          link: `/tasks/${task.id}`,
+          category: "TASKS",
+          priority: "HIGH",
+        },
+      }).catch(() => null);
+    }
+
+    return NextResponse.json({
+      success: true,
+      task: updated,
+      status: nextState,
+    });
+  } catch (error: any) {
+    console.error("Task Action Error:", error);
+    return NextResponse.json(
+      { error: error?.message || "Transition failed" },
+      { status: 500 }
+    );
   }
 }
