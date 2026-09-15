@@ -3,7 +3,6 @@
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 
 interface TaskItem {
   id: string;
@@ -94,14 +93,6 @@ export function KanbanBoard({
   const [mounted, setMounted] = useState(false);
   const [, startTransition] = useTransition();
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  const [newAssigneeId, setNewAssigneeId] = useState("");
-  const [newProjectId, setNewProjectId] = useState("");
-  const [newPriority, setNewPriority] = useState("P3");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -190,41 +181,6 @@ export function KanbanBoard({
     }
   };
 
-  const handleCreateTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTitle.trim(),
-          description: newDescription.trim(),
-          assigneeId: newAssigneeId || undefined,
-          projectId: newProjectId || undefined,
-          priority: newPriority,
-        }),
-      });
-
-      if (res.ok) {
-        setShowCreateModal(false);
-        setNewTitle("");
-        setNewDescription("");
-        setNewAssigneeId("");
-        setNewProjectId("");
-        setNewPriority("P3");
-        router.refresh();
-      } else {
-        const err = await res.json();
-        alert(err.error || "Failed to create task");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <div className="w-full space-y-4 select-none font-sans overflow-hidden">
       {/* 🧭 Action Header Ribbon */}
@@ -244,26 +200,18 @@ export function KanbanBoard({
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center">
           <input
             type="text"
             placeholder="Filter cards in board..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-56 sm:w-72 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-purple-600 shadow-xs transition"
+            className="w-56 sm:w-80 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-purple-600 shadow-xs transition"
           />
-
-          <Button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="min-h-[40px] rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 px-5 text-xs font-black text-white shadow-lg shadow-purple-500/25 hover:from-purple-700 hover:to-indigo-700 transition cursor-pointer"
-          >
-            + Create New Task
-          </Button>
         </div>
       </div>
 
-      {/* ▦ Kanban Grid Columns (Exact Screen Fit + Individual Scrollbars) */}
+      {/* ▦ Kanban Grid Columns */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 items-stretch w-full">
         {COLUMNS.map((column) => {
           const colTasks = filteredTasks.filter(
@@ -282,7 +230,7 @@ export function KanbanBoard({
                 column.accentColor
               } ${isTarget ? column.dropZoneHover : ""}`}
             >
-              {/* Box Header (Sticky Top) */}
+              {/* Box Header */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 px-1 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className={`h-2.5 w-2.5 rounded-full ${column.dot}`} />
@@ -374,128 +322,6 @@ export function KanbanBoard({
           );
         })}
       </div>
-
-      {/* 🚀 MODAL: Create New Task */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4 border border-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-black text-slate-900 tracking-tight">
-                  Create Task
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Configure assignment, project, and priority SLA.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-400 hover:bg-slate-200 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateTask} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700">Task Title *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Design landing page mockup"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-xs font-semibold outline-none focus:border-purple-600 transition"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700">Instructions</label>
-                <textarea
-                  rows={3}
-                  placeholder="Context, requirements, and deliverables..."
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-xs font-medium outline-none focus:border-purple-600 transition"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700">Assign To</label>
-                  <select
-                    value={newAssigneeId}
-                    onChange={(e) => setNewAssigneeId(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold outline-none cursor-pointer"
-                  >
-                    <option value="">Select an Employee...</option>
-                    {teamMembers.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700">Project</label>
-                  <select
-                    value={newProjectId}
-                    onChange={(e) => setNewProjectId(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-semibold outline-none cursor-pointer"
-                  >
-                    <option value="">No Project</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700">Priority SLA Window</label>
-                <div className="grid grid-cols-5 gap-2 mt-1.5">
-                  {PRIORITIES.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setNewPriority(p.id)}
-                      className={`flex flex-col items-center justify-center p-2 rounded-2xl border text-center transition cursor-pointer ${
-                        newPriority === p.id
-                          ? `${p.badge} border-transparent shadow-md scale-105`
-                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      <span className="text-xs font-black">{p.id}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowCreateModal(false)}
-                  className="rounded-xl"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="rounded-xl bg-purple-600 text-white font-black hover:bg-purple-700 shadow-md cursor-pointer"
-                >
-                  {isSubmitting ? "Creating..." : "Create Task"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
