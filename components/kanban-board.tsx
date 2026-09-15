@@ -29,29 +29,33 @@ const COLUMNS = [
   {
     id: "ASSIGNED",
     title: "TO DO / ASSIGNED",
-    accentColor: "border-sky-400 bg-sky-50/40 text-sky-900",
+    accentColor: "border-sky-300 bg-sky-50/20 text-sky-950",
     badge: "bg-sky-100 text-sky-800",
+    dot: "bg-sky-500",
     dropZoneHover: "border-sky-400 bg-sky-100/60 ring-2 ring-sky-300",
   },
   {
     id: "IN_PROGRESS",
     title: "IN PROGRESS",
-    accentColor: "border-amber-400 bg-amber-50/40 text-amber-900",
+    accentColor: "border-amber-300 bg-amber-50/20 text-amber-950",
     badge: "bg-amber-100 text-amber-800",
+    dot: "bg-amber-500",
     dropZoneHover: "border-amber-400 bg-amber-100/60 ring-2 ring-amber-300",
   },
   {
     id: "REVIEW",
     title: "UNDER REVIEW",
-    accentColor: "border-purple-400 bg-purple-50/40 text-purple-900",
+    accentColor: "border-purple-300 bg-purple-50/20 text-purple-950",
     badge: "bg-purple-100 text-purple-800",
+    dot: "bg-purple-500",
     dropZoneHover: "border-purple-400 bg-purple-100/60 ring-2 ring-purple-300",
   },
   {
     id: "COMPLETED",
     title: "COMPLETED / APPROVED",
-    accentColor: "border-emerald-400 bg-emerald-50/40 text-emerald-900",
+    accentColor: "border-emerald-300 bg-emerald-50/20 text-emerald-950",
     badge: "bg-emerald-100 text-emerald-800",
+    dot: "bg-emerald-500",
     dropZoneHover: "border-emerald-400 bg-emerald-100/60 ring-2 ring-emerald-300",
   },
 ];
@@ -90,7 +94,6 @@ export function KanbanBoard({
   const [mounted, setMounted] = useState(false);
   const [, startTransition] = useTransition();
 
-  // Create Task Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -124,7 +127,6 @@ export function KanbanBoard({
     );
   });
 
-  // Drag Handlers
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, taskId: string) => {
     e.dataTransfer.setData("text/plain", taskId);
     e.dataTransfer.effectAllowed = "move";
@@ -158,7 +160,6 @@ export function KanbanBoard({
       return;
     }
 
-    // Optimistic UI state update
     const previousTasks = [...tasks];
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus } : t))
@@ -185,7 +186,6 @@ export function KanbanBoard({
       });
     } catch (error) {
       console.error("Drop status update failed:", error);
-      // Revert optimistic change on network failure
       setTasks(previousTasks);
     }
   };
@@ -226,9 +226,9 @@ export function KanbanBoard({
   };
 
   return (
-    <div className="w-full space-y-6 select-none font-sans">
+    <div className="w-full space-y-4 select-none font-sans overflow-hidden">
       {/* 🧭 Action Header Ribbon */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-white/80 bg-white/95 p-4 shadow-xl backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-white/80 bg-white/95 p-3.5 shadow-xl backdrop-blur-xl">
         <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-100 p-1">
           <Link
             href="/tasks"
@@ -263,8 +263,8 @@ export function KanbanBoard({
         </div>
       </div>
 
-      {/* ▦ Kanban Grid Columns */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4 items-start">
+      {/* ▦ Kanban Grid Columns (Exact Screen Fit + Individual Scrollbars) */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 items-stretch w-full">
         {COLUMNS.map((column) => {
           const colTasks = filteredTasks.filter(
             (t) => normalizeStatus(t.status) === column.id
@@ -277,15 +277,19 @@ export function KanbanBoard({
               onDragOver={(e) => handleDragOver(e, column.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, column.id)}
-              className={`flex flex-col min-h-[620px] rounded-[30px] border-2 bg-white/95 p-4 shadow-xl transition-all duration-200 ${
+              style={{ height: "calc(100vh - 250px)", maxHeight: "640px", minHeight: "480px" }}
+              className={`flex flex-col rounded-[26px] border-2 bg-white/95 p-3.5 shadow-xl transition-all duration-200 overflow-hidden ${
                 column.accentColor
               } ${isTarget ? column.dropZoneHover : ""}`}
             >
-              {/* Column Header */}
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-1 pt-1">
-                <span className="text-xs font-black tracking-tight text-slate-900">
-                  {column.title}
-                </span>
+              {/* Box Header (Sticky Top) */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 px-1 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${column.dot}`} />
+                  <span className="text-xs font-black tracking-tight text-slate-900">
+                    {column.title}
+                  </span>
+                </div>
                 <span
                   className={`rounded-full px-2.5 py-0.5 text-xs font-black font-mono shadow-xs ${column.badge}`}
                 >
@@ -293,15 +297,15 @@ export function KanbanBoard({
                 </span>
               </div>
 
-              {/* Task Stack Droppable Area */}
+              {/* Scrollable Card Stack Area */}
               <div
                 onDragOver={(e) => handleDragOver(e, column.id)}
-                className="mt-3.5 flex-1 space-y-3.5"
+                className="mt-3 flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-3 pr-1 custom-kanban-scroll"
               >
                 {colTasks.length === 0 ? (
                   <div
                     onDragOver={(e) => handleDragOver(e, column.id)}
-                    className={`flex h-40 items-center justify-center rounded-2xl border-2 border-dashed transition-all ${
+                    className={`flex h-36 items-center justify-center rounded-2xl border-2 border-dashed transition-all ${
                       isTarget
                         ? "border-purple-500 bg-purple-100/60 text-purple-800 font-extrabold text-xs"
                         : "border-slate-200/90 bg-slate-50/50 text-slate-400 text-xs"
@@ -324,11 +328,10 @@ export function KanbanBoard({
                         draggable
                         onDragStart={(e) => handleDragStart(e, task.id)}
                         onDragEnd={() => setDraggedTaskId(null)}
-                        className={`group relative cursor-grab active:cursor-grabbing rounded-2xl border border-slate-200/90 bg-white p-4.5 shadow-sm transition-all duration-150 hover:-translate-y-1 hover:border-purple-300 hover:shadow-md ${
+                        className={`group relative cursor-grab active:cursor-grabbing rounded-2xl border border-slate-200/90 bg-white p-3.5 shadow-sm transition-all duration-150 hover:border-purple-300 hover:shadow-md ${
                           isBeingDragged ? "opacity-25 scale-95 ring-2 ring-purple-500" : ""
                         }`}
                       >
-                        {/* Priority Badge & Project */}
                         <div className="flex items-center justify-between gap-2">
                           <span
                             className={`rounded-md px-2 py-0.5 text-[10px] font-black uppercase shadow-xs ${pConfig.badge}`}
@@ -343,8 +346,7 @@ export function KanbanBoard({
                           )}
                         </div>
 
-                        {/* Title & Description */}
-                        <h4 className="mt-2.5 text-xs font-black text-slate-900 line-clamp-2 leading-snug">
+                        <h4 className="mt-2 text-xs font-black text-slate-900 line-clamp-2 leading-snug">
                           {task.title}
                         </h4>
 
@@ -354,13 +356,12 @@ export function KanbanBoard({
                           </p>
                         )}
 
-                        {/* Footer Details */}
-                        <div className="mt-3.5 flex items-center justify-between border-t border-slate-100 pt-2.5 text-[10px] text-slate-400 font-medium">
+                        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px] text-slate-400 font-medium">
                           <span suppressHydrationWarning>
                             {mounted ? formatSafeDate(task.dueAt) : "..."}
                           </span>
 
-                          <span className="font-bold text-slate-800 truncate max-w-[100px]">
+                          <span className="font-bold text-slate-800 truncate max-w-[110px]">
                             👤 {assignedUser?.name || assignedUser?.email?.split("@")[0] || "Unassigned"}
                           </span>
                         </div>

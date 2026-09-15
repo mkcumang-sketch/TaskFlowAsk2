@@ -69,7 +69,10 @@ body {
   box-sizing: border-box;
 }
 
-input, textarea, select, button {
+input,
+textarea,
+select,
+button {
   font: inherit;
 }
 
@@ -93,6 +96,31 @@ input, textarea, select, button {
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --radius: 0.75rem;
+}
+
+/* High-Contrast, Rounded Scrollbars for Kanban Columns */
+.custom-kanban-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #a855f7 #f1f5f9;
+}
+
+.custom-kanban-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-kanban-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 9999px;
+}
+
+.custom-kanban-scroll::-webkit-scrollbar-thumb {
+  background: #a855f7;
+  border-radius: 9999px;
+  border: 1px solid #e9d5ff;
+}
+
+.custom-kanban-scroll::-webkit-scrollbar-thumb:hover {
+  background: #9333ea;
 }
 
 /* Custom Smooth Floating & Pulse Shimmer Animations */

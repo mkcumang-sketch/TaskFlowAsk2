@@ -193,6 +193,7 @@ export function SPSidebar({
               Workspace
             </div>
           )}
+          {navItem("/team", "Team & Members", "👥")}
           {navItem("/today", "Today", "☀️", counts.today, "bg-amber-100 text-amber-900 font-bold")}
           {navItem("/inbox", "Inbox", "📥", counts.inbox, "bg-blue-100 text-blue-900 font-bold")}
           {navItem("/planner", "Planner", "📋")}
@@ -221,7 +222,7 @@ export function SPSidebar({
             </div>
           )}
           {isManager && navItem("/dashboard", "Dashboard", "📊")}
-          {navItem("/team", "Team & Members", "👥")}
+         
           {navItem("/projects", "Projects", "📁")}
           {navItem("/reports", "Reports", "📈")}
           {navItem("/calendar", "Calendar", "📆")}
