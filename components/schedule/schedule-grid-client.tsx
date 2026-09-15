@@ -25,8 +25,8 @@ interface ScheduleGridProps {
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8); // 08:00 to 20:00 (8 AM - 8 PM)
 
 export function ScheduleGridClient({
-  initialScheduledTasks,
-  unscheduledTasks,
+  initialScheduledTasks = [],
+  unscheduledTasks = [],
   currentUserId,
 }: ScheduleGridProps) {
   const router = useRouter();
@@ -55,14 +55,15 @@ export function ScheduleGridClient({
     });
   }, [initialScheduledTasks, selectedDate]);
 
-  // Compute Daily Load Metrics
+  // Compute Daily Load Metrics (24-Hour Day Capacity Window)
   const totalScheduledMinutes = dayTasks.reduce(
     (acc, t) => acc + (t.estimatedMinutes || 60),
     0
   );
   const scheduledHours = Math.round((totalScheduledMinutes / 60) * 10) / 10;
-  const freeHours = Math.max(0, Math.round((12 - scheduledHours) * 10) / 10);
-  const isOverbooked = scheduledHours > 8;
+  // Available free time based on 24 hour day window
+  const freeHours = Math.max(0, Math.round((24 - scheduledHours) * 10) / 10);
+  const isOverbooked = scheduledHours > 24;
 
   // Handle Quick Timebox Slot Click
   const handleSlotClick = async (hour: number) => {
@@ -103,32 +104,45 @@ export function ScheduleGridClient({
     ((currentHour - 8) * 60 + currentMinute) * (80 / 60); // 80px height per hour slot
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 font-sans select-none">
       {/* 📊 1. METRICS RIBBON */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* Scheduled Work */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
-          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Scheduled Work</span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            Scheduled Work
+          </span>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-2xl font-black text-slate-900">{scheduledHours}</span>
             <span className="text-xs font-bold text-slate-400">hours</span>
           </div>
-          <span className="text-[11px] font-semibold text-purple-600">{dayTasks.length} task blocks</span>
+          <span className="text-[11px] font-semibold text-purple-600">
+            {dayTasks.length} task blocks
+          </span>
         </div>
 
+        {/* Available Free Time (Updated to 24-hour cycle) */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
-          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Available Free Time</span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            Available Free Time
+          </span>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-emerald-600">{freeHours}</span>
+            <span className="text-2xl font-black text-emerald-600">
+              {scheduledHours === 0 ? 24 : freeHours}
+            </span>
             <span className="text-xs font-bold text-slate-400">hours</span>
           </div>
-          <span className="text-[11px] text-slate-400">Within 8 AM - 8 PM window</span>
+          <span className="text-[11px] text-slate-400">Within 24-hour daily window</span>
         </div>
 
+        {/* Capacity Load */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
-          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Capacity Load</span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+            Capacity Load
+          </span>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className={`text-2xl font-black ${isOverbooked ? "text-red-600" : "text-slate-900"}`}>
-              {Math.min(100, Math.round((scheduledHours / 8) * 100))}%
+              {Math.min(100, Math.round((scheduledHours / 24) * 100))}%
             </span>
           </div>
           <span className={`text-[11px] font-bold ${isOverbooked ? "text-red-500" : "text-emerald-600"}`}>
@@ -136,8 +150,11 @@ export function ScheduleGridClient({
           </span>
         </div>
 
+        {/* Unscheduled Tasks */}
         <div className="rounded-2xl border border-purple-200/80 bg-purple-50/80 p-4 shadow-sm backdrop-blur-md flex flex-col justify-between">
-          <span className="text-[10px] font-black uppercase tracking-wider text-purple-800">Unscheduled Tasks</span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-purple-800">
+            Unscheduled Tasks
+          </span>
           <div className="flex items-baseline gap-1.5">
             <span className="text-2xl font-black text-purple-950">{unscheduledTasks.length}</span>
             <span className="text-xs text-purple-700">waiting</span>
@@ -150,28 +167,31 @@ export function ScheduleGridClient({
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white/80 p-3 backdrop-blur-md">
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => {
               const d = new Date(selectedDate);
               d.setDate(d.getDate() - 1);
               setSelectedDate(d.toISOString().split("T")[0]);
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold hover:bg-slate-50"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold hover:bg-slate-50 transition cursor-pointer"
           >
             ←
           </button>
           <button
+            type="button"
             onClick={() => setSelectedDate(new Date().toISOString().split("T")[0])}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-50"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
           >
             Today
           </button>
           <button
+            type="button"
             onClick={() => {
               const d = new Date(selectedDate);
               d.setDate(d.getDate() + 1);
               setSelectedDate(d.toISOString().split("T")[0]);
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold hover:bg-slate-50"
+            className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-xs font-bold hover:bg-slate-50 transition cursor-pointer"
           >
             →
           </button>
@@ -179,7 +199,7 @@ export function ScheduleGridClient({
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="rounded-xl border border-slate-200 px-3 py-1 text-xs font-bold text-slate-800 outline-none"
+            className="rounded-xl border border-slate-200 px-3 py-1 text-xs font-bold text-slate-800 outline-none cursor-pointer"
           />
         </div>
 
@@ -187,7 +207,11 @@ export function ScheduleGridClient({
           <div className="flex items-center gap-2 rounded-xl bg-purple-100 px-3 py-1 text-xs font-bold text-purple-900 animate-pulse">
             <span>Click any hour on the grid to drop:</span>
             <span className="underline truncate max-w-[200px]">{selectedUnscheduledTask.title}</span>
-            <button onClick={() => setSelectedUnscheduledTask(null)} className="ml-1 text-purple-500 hover:text-purple-800">
+            <button
+              type="button"
+              onClick={() => setSelectedUnscheduledTask(null)}
+              className="ml-1 text-purple-500 hover:text-purple-800 cursor-pointer"
+            >
               ✕
             </button>
           </div>
@@ -195,7 +219,7 @@ export function ScheduleGridClient({
       </div>
 
       {/* 🕒 3. SPLIT WORKSPACE: TIME GRID + UNSCHEDULED PANEL */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
         {/* TIME GRID (Col 8) */}
         <div className="relative overflow-hidden rounded-3xl border border-white/80 bg-white/90 p-6 shadow-xl backdrop-blur-xl lg:col-span-8">
           <div className="relative divide-y divide-slate-100">
@@ -267,7 +291,7 @@ export function ScheduleGridClient({
             <p className="text-xs text-slate-500">Pick a task to place it on the time grid.</p>
           </div>
 
-          <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1 custom-kanban-scroll">
             {unscheduledTasks.length === 0 ? (
               <div className="py-12 text-center text-xs text-slate-400">Backlog is empty!</div>
             ) : (
