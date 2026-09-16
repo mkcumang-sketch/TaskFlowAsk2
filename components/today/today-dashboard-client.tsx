@@ -30,6 +30,7 @@ interface TaskItem {
   tags?: string[];
   subtasks: Subtask[];
   project?: Project | null;
+  assignees?: Array<{ user: { id: string; name: string | null; email: string } }>;
 }
 
 interface DailyStats {
@@ -65,7 +66,7 @@ export function TodayDashboardClient({
 }: TodayDashboardProps) {
   const router = useRouter();
 
-  // Active Task & Timer State
+  // Active Task & Live Timer State
   const [activeTaskId, setActiveTaskId] = useState<string | null>(
     initialTasks.find((t) => t.status === "IN_PROGRESS")?.id || null
   );
@@ -82,7 +83,18 @@ export function TodayDashboardClient({
     [initialTasks, activeTaskId]
   );
 
-  // 1. Live Stopwatch Tick for Current Active Task
+  // Auto-start or bind timer if an assigned in-progress task exists
+  useEffect(() => {
+    const assignedInProgress = initialTasks.find(
+      (t) => (t.assignees && t.assignees.length > 0) && t.status === "IN_PROGRESS"
+    );
+    if (assignedInProgress && !activeTaskId) {
+      setActiveTaskId(assignedInProgress.id);
+      setIsTimerRunning(true);
+    }
+  }, [initialTasks, activeTaskId]);
+
+  // 1. Live Stopwatch Tick for Active Task
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     if (isTimerRunning && activeTaskId) {
@@ -120,14 +132,22 @@ export function TodayDashboardClient({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTaskId]);
 
-  // Toggle Timer Handler on Any Task Row
-  const handleToggleTaskTimer = (task: TaskItem) => {
+  // Handle task timer toggle directly from deliverable row or play button
+  const handleToggleTaskTimer = async (task: TaskItem) => {
     if (activeTaskId === task.id) {
       setIsTimerRunning(!isTimerRunning);
     } else {
       setActiveTaskId(task.id);
       setIsTimerRunning(true);
       setTimerSeconds(0);
+
+      if (task.status !== "IN_PROGRESS") {
+        fetch(`/api/tasks/${task.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "IN_PROGRESS" }),
+        }).catch(() => {});
+      }
     }
   };
 
@@ -189,8 +209,12 @@ export function TodayDashboardClient({
 
   // Format Clock Seconds
   const formatTimer = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60);
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
     const secs = totalSeconds % 60;
+    if (hrs > 0) {
+      return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
@@ -268,7 +292,7 @@ export function TodayDashboardClient({
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
                 <span className="rounded-full bg-purple-500/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-200">
-                  🎯 Currently Tracking
+                  🎯 Live Focus Sprint
                 </span>
                 {activeTask.project && (
                   <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-200">
@@ -278,7 +302,7 @@ export function TodayDashboardClient({
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight text-white truncate">{activeTask.title}</h2>
               <p className="text-xs text-purple-200">
-                Estimated: {activeTask.estimateMinutes || 0}m • Logged: {(activeTask.actualMinutes || 0) + Math.round(timerSeconds / 60)}m
+                {isTimerRunning ? "Actively tracking sprint duration" : "Sprint paused. Click resume to continue."}
               </p>
             </div>
 
@@ -308,16 +332,16 @@ export function TodayDashboardClient({
                   onClick={handleStopTimer}
                   className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20 text-xs py-2 cursor-pointer"
                 >
-                  ■ Stop & Log
+                  ■ Stop & Save
                 </Button>
               </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-4 text-xs text-slate-500">
-          <span>No active focus session running. Click the play button next to any deliverable below to start timer.</span>
-          <span className="hidden sm:inline font-mono text-[11px] bg-slate-100 px-2 py-1 rounded-md text-slate-600">
+        <div className="flex items-center justify-between rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-4 text-xs text-slate-500 shadow-xs">
+          <span>No active timer running. Click any "Start Timer" button in the deliverables list below to begin tracking.</span>
+          <span className="hidden sm:inline font-mono text-[11px] bg-slate-100 px-2.5 py-1 rounded-md text-slate-600">
             Shortcut: [Space] toggles timer
           </span>
         </div>
@@ -331,7 +355,7 @@ export function TodayDashboardClient({
               key={p}
               type="button"
               onClick={() => setFilterPriority(p)}
-              className={`rounded-lg px-3 py-1 text-xs font-bold transition cursor-pointer ${
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
                 filterPriority === p ? "bg-slate-950 text-white shadow-xs" : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -357,16 +381,16 @@ export function TodayDashboardClient({
         </div>
       </div>
 
-      {/* 📅 4. SCHEDULED DELIVERABLES LIST (Count Pill Removed + Inline Timers) */}
+      {/* 📅 4. SCHEDULED DELIVERABLES (Count column removed, Live Tracker added) */}
       <div className="rounded-[30px] border border-white/80 bg-white/95 p-6 shadow-xl backdrop-blur-xl">
-        {/* Header Ribbon without Count Badge */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        {/* Header Ribbon */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-1">
           <span className="text-xs font-black uppercase tracking-wider text-slate-800">
             SCHEDULED DELIVERABLES
           </span>
           <div className="flex items-center gap-8 text-[10px] font-black uppercase tracking-wider text-slate-400">
-            <span>SPENT / ESTIMATE</span>
-            <span>PRIORITY</span>
+            <span className="w-32 text-center">TIMER & TRACKER</span>
+            <span className="w-10 text-center">PRIORITY</span>
           </div>
         </div>
 
@@ -385,31 +409,13 @@ export function TodayDashboardClient({
               return (
                 <div
                   key={task.id}
-                  className={`flex items-center justify-between py-3.5 px-2.5 rounded-2xl transition-all ${
+                  className={`flex items-center justify-between py-3.5 px-3 rounded-2xl transition-all ${
                     isTaskActive
                       ? "bg-purple-50/80 border border-purple-200"
                       : "hover:bg-slate-50/80"
                   }`}
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
-                    {/* Timer Trigger Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleToggleTaskTimer(task)}
-                      title={isTaskActive && isTimerRunning ? "Pause Timer" : "Start Focus Timer"}
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition cursor-pointer shadow-xs ${
-                        isTaskActive && isTimerRunning
-                          ? "bg-purple-600 text-white shadow-purple-500/30 animate-pulse"
-                          : "bg-slate-100 text-slate-700 hover:bg-purple-600 hover:text-white"
-                      }`}
-                    >
-                      {isTaskActive && isTimerRunning ? (
-                        <span className="text-xs font-bold">⏸</span>
-                      ) : (
-                        <span className="text-xs font-bold pl-0.5">▶</span>
-                      )}
-                    </button>
-
                     <div className="min-w-0 space-y-0.5">
                       <div className="flex items-center gap-2">
                         <Link
@@ -420,12 +426,6 @@ export function TodayDashboardClient({
                         >
                           {task.title}
                         </Link>
-
-                        {isTaskActive && (
-                          <span className="rounded-md bg-purple-600 text-white text-[9px] font-black px-1.5 py-0.2 font-mono">
-                            {formatTimer(timerSeconds)}
-                          </span>
-                        )}
                       </div>
 
                       <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
@@ -439,14 +439,31 @@ export function TodayDashboardClient({
                     </div>
                   </div>
 
-                  {/* Estimation & Priority Badge */}
+                  {/* Right: Live Interactive Timer Button & Priority Badge */}
                   <div className="flex items-center gap-8 shrink-0">
-                    <span className="text-xs font-bold text-slate-500 font-mono">
-                      {task.actualMinutes || 0}m / {task.estimateMinutes ? `${task.estimateMinutes}m` : "8h"}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleTaskTimer(task)}
+                      className={`flex w-32 items-center justify-center gap-2 rounded-xl px-3 py-1.5 transition cursor-pointer font-mono text-xs font-black shadow-xs ${
+                        isTaskActive && isTimerRunning
+                          ? "bg-purple-600 text-white shadow-purple-500/30 animate-pulse ring-2 ring-purple-300"
+                          : isTaskActive
+                          ? "bg-amber-100 text-amber-900 hover:bg-amber-200"
+                          : "bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-purple-700 border border-slate-200"
+                      }`}
+                    >
+                      <span>{isTaskActive && isTimerRunning ? "⏸" : "▶"}</span>
+                      <span>
+                        {isTaskActive
+                          ? formatTimer(timerSeconds)
+                          : task.actualMinutes
+                          ? `${task.actualMinutes}m logged`
+                          : "Start Timer"}
+                      </span>
+                    </button>
 
                     <span
-                      className={`flex h-7 w-8 items-center justify-center rounded-lg border text-xs font-black ${pConfig.badge}`}
+                      className={`flex h-7 w-10 items-center justify-center rounded-lg border text-xs font-black ${pConfig.badge}`}
                     >
                       {pConfig.label}
                     </span>

@@ -327,4 +327,4 @@ export function ScheduleGridClient({
       </div>
     </div>
   );
-}
+}n
