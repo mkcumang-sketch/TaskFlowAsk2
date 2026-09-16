@@ -61,7 +61,6 @@ export function ScheduleGridClient({
     0
   );
   const scheduledHours = Math.round((totalScheduledMinutes / 60) * 10) / 10;
-  // Available free time based on 24 hour day window
   const freeHours = Math.max(0, Math.round((24 - scheduledHours) * 10) / 10);
   const isOverbooked = scheduledHours > 24;
 
@@ -121,7 +120,7 @@ export function ScheduleGridClient({
           </span>
         </div>
 
-        {/* Available Free Time (Updated to 24-hour cycle) */}
+        {/* Available Free Time (24-hour cycle) */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
             Available Free Time
@@ -327,4 +326,4 @@ export function ScheduleGridClient({
       </div>
     </div>
   );
-}n
+}
