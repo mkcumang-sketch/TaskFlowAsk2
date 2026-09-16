@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,8 @@ interface TaskItem {
   estimateMinutes?: number | null;
   actualMinutes?: number | null;
   dueDate?: Date | string | null;
+  createdAt?: string | Date | null;
+  assignedAt?: string | Date | null;
   recurringInterval?: string | null;
   tags?: string[];
   subtasks: Subtask[];
@@ -59,6 +61,16 @@ const PRIORITIES: Record<string, { badge: string; label: string }> = {
   LOW: { badge: "text-indigo-600 bg-indigo-50 border-indigo-200", label: "P4" },
 };
 
+// Helper: Assigned time se lekar ab tak ka second difference nikalna
+function getSecondsSinceAssignment(task: TaskItem): number {
+  const timestamp = task.assignedAt || task.createdAt;
+  if (!timestamp) return 0;
+  const startMs = new Date(timestamp).getTime();
+  if (isNaN(startMs)) return 0;
+  const diffSec = Math.floor((Date.now() - startMs) / 1000);
+  return Math.max(0, diffSec);
+}
+
 export function TodayDashboardClient({
   initialTasks = [],
   unplannedTasks = [],
@@ -66,12 +78,13 @@ export function TodayDashboardClient({
 }: TodayDashboardProps) {
   const router = useRouter();
 
-  // Active Task & Live Timer State
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(
-    initialTasks.find((t) => t.status === "IN_PROGRESS")?.id || null
-  );
-  const [timerSeconds, setTimerSeconds] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  // Active Task & Live Timer
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [timerSeconds, setTimerSeconds] = useState<number>(0);
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
+
+  // Per-task live ticker trigger
+  const [currentTimeTick, setCurrentTimeTick] = useState<number>(Date.now());
 
   // UI Drawers & Filters
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
@@ -83,31 +96,39 @@ export function TodayDashboardClient({
     [initialTasks, activeTaskId]
   );
 
-  // Auto-start or bind timer if an assigned in-progress task exists
+  // 1. Task Assign hote hi Auto-Track shuru karna
   useEffect(() => {
-    const assignedInProgress = initialTasks.find(
-      (t) => (t.assignees && t.assignees.length > 0) && t.status === "IN_PROGRESS"
+    // Check karein koi assigned task jo abhi pending/in-progress hai
+    const assignedTask = initialTasks.find(
+      (t) =>
+        t.assignees &&
+        t.assignees.length > 0 &&
+        t.status !== "COMPLETED" &&
+        t.status !== "APPROVED"
     );
-    if (assignedInProgress && !activeTaskId) {
-      setActiveTaskId(assignedInProgress.id);
+
+    if (assignedTask && !activeTaskId) {
+      setActiveTaskId(assignedTask.id);
       setIsTimerRunning(true);
+      // Direct elapsed calculation: assignment time se ab tak
+      const elapsed = getSecondsSinceAssignment(assignedTask);
+      setTimerSeconds(elapsed);
     }
   }, [initialTasks, activeTaskId]);
 
-  // 1. Live Stopwatch Tick for Active Task
+  // 2. Continuous Global Second Ticker (har second UI refresh karega)
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    if (isTimerRunning && activeTaskId) {
-      interval = setInterval(() => {
+    const ticker = setInterval(() => {
+      setCurrentTimeTick(Date.now());
+      if (isTimerRunning && activeTaskId) {
         setTimerSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+      }
+    }, 1000);
+
+    return () => clearInterval(ticker);
   }, [isTimerRunning, activeTaskId]);
 
-  // 2. Keyboard Shortcuts (Space: Toggle Timer, Escape: Close Drawers)
+  // 3. Spacebar Shortcut
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (
@@ -123,8 +144,6 @@ export function TodayDashboardClient({
       } else if (e.key === "Escape") {
         setSelectedTask(null);
         setShowInboxDrawer(false);
-      } else if (e.key === "i" || e.key === "I") {
-        setShowInboxDrawer((prev) => !prev);
       }
     }
 
@@ -132,40 +151,32 @@ export function TodayDashboardClient({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTaskId]);
 
-  // Handle task timer toggle directly from deliverable row or play button
+  // Timer Toggle Handler
   const handleToggleTaskTimer = async (task: TaskItem) => {
     if (activeTaskId === task.id) {
       setIsTimerRunning(!isTimerRunning);
     } else {
       setActiveTaskId(task.id);
       setIsTimerRunning(true);
-      setTimerSeconds(0);
+
+      // Task assign/create time se difference uthana
+      const elapsed = getSecondsSinceAssignment(task);
+      setTimerSeconds(elapsed > 0 ? elapsed : 0);
 
       if (task.status !== "IN_PROGRESS") {
         fetch(`/api/tasks/${task.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "IN_PROGRESS" }),
+          body: JSON.stringify({
+            status: "IN_PROGRESS",
+            assignedAt: task.assignedAt || new Date().toISOString(),
+          }),
         }).catch(() => {});
       }
     }
   };
 
-  // Toggle Subtask Completion
-  const handleToggleSubtask = async (taskId: string, subtaskId: string, currentStatus: boolean) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: subtaskId, completed: !currentStatus }),
-      });
-      if (res.ok) router.refresh();
-    } catch (err) {
-      console.error("Failed to toggle subtask", err);
-    }
-  };
-
-  // Quick Stop & Log Session Time
+  // Stop Timer & Save Log
   const handleStopTimer = async () => {
     if (!activeTaskId) return;
     const durationMinutes = Math.max(1, Math.round(timerSeconds / 60));
@@ -187,27 +198,7 @@ export function TodayDashboardClient({
     }
   };
 
-  // Move Unplanned task into Today
-  const handleMoveToToday = async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "ASSIGNED",
-          dueDate: new Date().toISOString(),
-        }),
-      });
-      if (res.ok) {
-        setShowInboxDrawer(false);
-        router.refresh();
-      }
-    } catch (err) {
-      console.error("Failed to reschedule task", err);
-    }
-  };
-
-  // Format Clock Seconds
+  // Format Helper: Seconds to HH:MM:SS or MM:SS
   const formatTimer = (totalSeconds: number) => {
     const hrs = Math.floor(totalSeconds / 3600);
     const mins = Math.floor((totalSeconds % 3600) / 60);
@@ -235,7 +226,7 @@ export function TodayDashboardClient({
 
   return (
     <div className="space-y-6 font-sans select-none">
-      {/* 📊 1. DAILY PRODUCTIVITY & PROGRESS BAR */}
+      {/* 📊 1. METRICS CARDS */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Tasks Completed</span>
@@ -284,7 +275,7 @@ export function TodayDashboardClient({
         </div>
       </div>
 
-      {/* ⏱️ 2. ACTIVE FOCUS TASK & LIVE TIME TRACKER BANNER */}
+      {/* ⏱️ 2. ACTIVE FOCUS SPRINT BANNER */}
       {activeTask ? (
         <div className="rounded-[28px] border border-purple-200 bg-gradient-to-r from-slate-950 via-purple-950 to-slate-950 p-6 text-white shadow-xl shadow-purple-950/20">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -292,7 +283,7 @@ export function TodayDashboardClient({
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
                 <span className="rounded-full bg-purple-500/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-200">
-                  🎯 Live Focus Sprint
+                  🎯 Tracking Assigned Task
                 </span>
                 {activeTask.project && (
                   <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-slate-200">
@@ -302,7 +293,7 @@ export function TodayDashboardClient({
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight text-white truncate">{activeTask.title}</h2>
               <p className="text-xs text-purple-200">
-                {isTimerRunning ? "Actively tracking sprint duration" : "Sprint paused. Click resume to continue."}
+                {isTimerRunning ? "Live timer tracking assigned work duration..." : "Sprint paused. Press resume to continue."}
               </p>
             </div>
 
@@ -312,7 +303,7 @@ export function TodayDashboardClient({
                   {formatTimer(timerSeconds)}
                 </div>
                 <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">
-                  {isTimerRunning ? "Sprint Active" : "Sprint Paused"}
+                  {isTimerRunning ? "Timer Running" : "Timer Paused"}
                 </span>
               </div>
 
@@ -340,9 +331,9 @@ export function TodayDashboardClient({
         </div>
       ) : (
         <div className="flex items-center justify-between rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-4 text-xs text-slate-500 shadow-xs">
-          <span>No active timer running. Click any "Start Timer" button in the deliverables list below to begin tracking.</span>
+          <span>Click on any assigned task below to start tracking time.</span>
           <span className="hidden sm:inline font-mono text-[11px] bg-slate-100 px-2.5 py-1 rounded-md text-slate-600">
-            Shortcut: [Space] toggles timer
+            [Space] Toggles Timer
           </span>
         </div>
       )}
@@ -381,21 +372,19 @@ export function TodayDashboardClient({
         </div>
       </div>
 
-      {/* 📅 4. SCHEDULED DELIVERABLES (Count column removed, Live Tracker added) */}
+      {/* 📅 4. SCHEDULED DELIVERABLES (LIVE TRACKER REPLACED) */}
       <div className="rounded-[30px] border border-white/80 bg-white/95 p-6 shadow-xl backdrop-blur-xl">
-        {/* Header Ribbon */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-1">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3.5 px-1">
           <span className="text-xs font-black uppercase tracking-wider text-slate-800">
             SCHEDULED DELIVERABLES
           </span>
           <div className="flex items-center gap-8 text-[10px] font-black uppercase tracking-wider text-slate-400">
-            <span className="w-32 text-center">TIMER & TRACKER</span>
+            <span className="w-36 text-center">TIMER & TRACKER</span>
             <span className="w-10 text-center">PRIORITY</span>
           </div>
         </div>
 
-        {/* Task Rows List with Instant Timer Buttons */}
-        <div className="mt-3 divide-y divide-slate-100">
+        <div className="mt-2 divide-y divide-slate-100">
           {filteredTasks.length === 0 ? (
             <div className="py-12 text-center text-xs font-semibold text-slate-400">
               No scheduled deliverables for today matching this filter.
@@ -404,7 +393,13 @@ export function TodayDashboardClient({
             filteredTasks.map((task) => {
               const isTaskActive = task.id === activeTaskId;
               const isCompleted = task.status === "COMPLETED" || task.status === "APPROVED";
+              const isAssigned = Boolean(task.assignees && task.assignees.length > 0);
               const pConfig = PRIORITIES[task.priority?.toUpperCase()] || PRIORITIES.P3;
+
+              // Calculate live display timer for this row
+              const rowSeconds = isTaskActive
+                ? timerSeconds
+                : getSecondsSinceAssignment(task);
 
               return (
                 <div
@@ -426,10 +421,15 @@ export function TodayDashboardClient({
                         >
                           {task.title}
                         </Link>
+                        {isAssigned && (
+                          <span className="rounded-md bg-purple-100 text-purple-800 text-[9px] font-black px-1.5 py-0.5 uppercase">
+                            Assigned
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
-                        <span>{task.project ? task.project.name : "Salespipeline"}</span>
+                        <span>{task.project ? task.project.name : "Direct Task"}</span>
                         {task.recurringInterval && (
                           <span className="text-[10px] text-blue-600 font-bold">
                             🔄 {task.recurringInterval}
@@ -439,26 +439,24 @@ export function TodayDashboardClient({
                     </div>
                   </div>
 
-                  {/* Right: Live Interactive Timer Button & Priority Badge */}
+                  {/* Right: Live Running Tracker Button */}
                   <div className="flex items-center gap-8 shrink-0">
                     <button
                       type="button"
                       onClick={() => handleToggleTaskTimer(task)}
-                      className={`flex w-32 items-center justify-center gap-2 rounded-xl px-3 py-1.5 transition cursor-pointer font-mono text-xs font-black shadow-xs ${
+                      className={`flex w-36 items-center justify-center gap-2 rounded-xl px-3 py-1.5 transition cursor-pointer font-mono text-xs font-black shadow-xs ${
                         isTaskActive && isTimerRunning
                           ? "bg-purple-600 text-white shadow-purple-500/30 animate-pulse ring-2 ring-purple-300"
                           : isTaskActive
                           ? "bg-amber-100 text-amber-900 hover:bg-amber-200"
+                          : rowSeconds > 0
+                          ? "bg-slate-100 text-purple-700 border border-purple-200 hover:bg-purple-50"
                           : "bg-slate-100 text-slate-700 hover:bg-purple-50 hover:text-purple-700 border border-slate-200"
                       }`}
                     >
                       <span>{isTaskActive && isTimerRunning ? "⏸" : "▶"}</span>
                       <span>
-                        {isTaskActive
-                          ? formatTimer(timerSeconds)
-                          : task.actualMinutes
-                          ? `${task.actualMinutes}m logged`
-                          : "Start Timer"}
+                        {rowSeconds > 0 ? formatTimer(rowSeconds) : "Track Time"}
                       </span>
                     </button>
 
@@ -474,102 +472,6 @@ export function TodayDashboardClient({
           )}
         </div>
       </div>
-
-      {/* 📋 5. UNPLANNED / INBOX SLIDE-OVER DRAWER */}
-      {showInboxDrawer && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-white p-6 shadow-2xl space-y-4 overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Unplanned Backlog</h3>
-                <p className="text-xs text-slate-500">Pick tasks from the inbox to execute today.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowInboxDrawer(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 text-sm cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {unplannedTasks.length === 0 ? (
-                <p className="text-center text-xs text-slate-400 py-8">Inbox is empty!</p>
-              ) : (
-                unplannedTasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex items-center justify-between rounded-xl border border-slate-200 p-3 hover:border-slate-300"
-                  >
-                    <div className="min-w-0 flex-1 pr-2">
-                      <p className="truncate text-xs font-bold text-slate-800">{t.title}</p>
-                      {t.project && (
-                        <span className="text-[10px] text-slate-400 font-medium">
-                          {t.project.name}
-                        </span>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleMoveToToday(t.id)}
-                      className="rounded-lg bg-slate-900 text-white text-[11px] px-2.5 py-1 h-auto cursor-pointer"
-                    >
-                      + Add to Today
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 📝 6. TASK DETAIL MODAL */}
-      {selectedTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-900">{selectedTask.title}</h3>
-              <button
-                type="button"
-                onClick={() => setSelectedTask(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-600">
-              <div>
-                <span className="font-semibold text-slate-700">Description:</span>
-                <p className="mt-1 rounded-xl bg-slate-50 p-3 border border-slate-100 text-slate-800">
-                  {selectedTask.description || "No description provided."}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-xl border border-slate-200 p-2.5">
-                  <span className="text-slate-400 block text-[10px] font-bold uppercase">Estimated Time</span>
-                  <span className="font-bold text-slate-800">{selectedTask.estimateMinutes || 0} minutes</span>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-2.5">
-                  <span className="text-slate-400 block text-[10px] font-bold uppercase">Actual Logged</span>
-                  <span className="font-bold text-purple-600">{selectedTask.actualMinutes || 0} minutes</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
-              <Link href={`/tasks/${selectedTask.id}`}>
-                <Button size="sm" className="rounded-xl bg-slate-900 text-xs text-white cursor-pointer">
-                  Open Full Task Page →
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
