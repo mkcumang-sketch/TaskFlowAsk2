@@ -41,6 +41,15 @@ export function ScheduleGridClient({
   const [selectedUnscheduledTask, setSelectedUnscheduledTask] = useState<TaskItem | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
 
+  // Direct Time Slot Creation Dialog
+  const [slotModal, setSlotModal] = useState<{
+    isOpen: boolean;
+    hour: number;
+    title: string;
+    duration: number;
+    taskId?: string;
+  } | null>(null);
+
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
@@ -55,7 +64,7 @@ export function ScheduleGridClient({
     });
   }, [initialScheduledTasks, selectedDate]);
 
-  // Compute Daily Load Metrics (24-Hour Day Capacity Window)
+  // Compute Daily Load Metrics
   const totalScheduledMinutes = dayTasks.reduce(
     (acc, t) => acc + (t.estimatedMinutes || 60),
     0
@@ -64,31 +73,49 @@ export function ScheduleGridClient({
   const freeHours = Math.max(0, Math.round((24 - scheduledHours) * 10) / 10);
   const isOverbooked = scheduledHours > 24;
 
-  // Handle Quick Timebox Slot Click
-  const handleSlotClick = async (hour: number) => {
-    if (!selectedUnscheduledTask) return;
+  // Primary slot assigner
+  const assignTaskToHour = async (taskId: string, hour: number, durationMinutes: number) => {
     setIsAssigning(true);
-
     try {
       const res = await fetch("/api/schedule/timebox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskId: selectedUnscheduledTask.id,
+          taskId,
           dateStr: selectedDate,
           startHour: hour,
-          durationMinutes: selectedUnscheduledTask.estimatedMinutes || 60,
+          durationMinutes,
         }),
       });
 
       if (res.ok) {
         setSelectedUnscheduledTask(null);
+        setSlotModal(null);
         router.refresh();
       }
     } catch (err) {
       console.error("Failed to schedule slot:", err);
     } finally {
       setIsAssigning(false);
+    }
+  };
+
+  // Handle slot click: assign if task picked, or open picker modal
+  const handleSlotClick = (hour: number) => {
+    if (selectedUnscheduledTask) {
+      assignTaskToHour(
+        selectedUnscheduledTask.id,
+        hour,
+        selectedUnscheduledTask.estimatedMinutes || 60
+      );
+    } else {
+      setSlotModal({
+        isOpen: true,
+        hour,
+        title: "",
+        duration: 60,
+        taskId: unscheduledTasks[0]?.id || "",
+      });
     }
   };
 
@@ -106,7 +133,6 @@ export function ScheduleGridClient({
     <div className="w-full space-y-6 font-sans select-none">
       {/* 📊 1. METRICS RIBBON */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {/* Scheduled Work */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
             Scheduled Work
@@ -120,7 +146,6 @@ export function ScheduleGridClient({
           </span>
         </div>
 
-        {/* Available Free Time (24-hour cycle) */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
             Available Free Time
@@ -134,7 +159,6 @@ export function ScheduleGridClient({
           <span className="text-[11px] text-slate-400">Within 24-hour daily window</span>
         </div>
 
-        {/* Capacity Load */}
         <div className="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur-md">
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
             Capacity Load
@@ -149,7 +173,6 @@ export function ScheduleGridClient({
           </span>
         </div>
 
-        {/* Unscheduled Tasks */}
         <div className="rounded-2xl border border-purple-200/80 bg-purple-50/80 p-4 shadow-sm backdrop-blur-md flex flex-col justify-between">
           <span className="text-[10px] font-black uppercase tracking-wider text-purple-800">
             Unscheduled Tasks
@@ -158,7 +181,7 @@ export function ScheduleGridClient({
             <span className="text-2xl font-black text-purple-950">{unscheduledTasks.length}</span>
             <span className="text-xs text-purple-700">waiting</span>
           </div>
-          <span className="text-[11px] font-bold text-purple-700">Click a task below to timebox</span>
+          <span className="text-[11px] font-bold text-purple-700">Click any hour to assign time</span>
         </div>
       </div>
 
@@ -243,17 +266,37 @@ export function ScheduleGridClient({
                 <div
                   key={hour}
                   onClick={() => handleSlotClick(hour)}
-                  className={`group relative flex min-h-[80px] cursor-pointer transition-colors ${
-                    selectedUnscheduledTask ? "hover:bg-purple-50/50" : "hover:bg-slate-50/60"
+                  className={`group relative flex min-h-[80px] cursor-pointer transition-colors border-l-2 border-transparent hover:border-purple-500 ${
+                    selectedUnscheduledTask ? "hover:bg-purple-50/50" : "hover:bg-slate-50/80"
                   }`}
                 >
-                  {/* Time Label */}
-                  <div className="w-16 shrink-0 pt-2 text-xs font-black text-slate-400 font-mono select-none">
-                    {String(hour).padStart(2, "0")}:00
+                  {/* Left Column: Clock Time & Assign Button */}
+                  <div className="w-20 shrink-0 pt-2 pr-2 select-none flex flex-col justify-between items-start">
+                    <span className="text-xs font-black text-slate-500 font-mono">
+                      {String(hour).padStart(2, "0")}:00
+                    </span>
+
+                    {/* Hover "+ Assign" Pill */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSlotClick(hour);
+                      }}
+                      className="hidden group-hover:inline-flex items-center gap-1 text-[10px] font-bold text-purple-600 bg-purple-50 hover:bg-purple-100 px-1.5 py-0.5 rounded-md border border-purple-200 transition-all mb-2"
+                    >
+                      + Assign
+                    </button>
                   </div>
 
                   {/* Hourly Work Container */}
                   <div className="flex-1 p-1.5 space-y-2">
+                    {slotTasks.length === 0 && (
+                      <div className="h-full min-h-[50px] flex items-center text-[11px] text-slate-300 group-hover:text-purple-400 font-medium transition-colors">
+                        Click to timebox task at {String(hour).padStart(2, "0")}:00
+                      </div>
+                    )}
+
                     {slotTasks.map((task) => {
                       const duration = task.estimatedMinutes || 60;
                       return (
@@ -324,6 +367,86 @@ export function ScheduleGridClient({
           </div>
         </div>
       </div>
+
+      {/* ⏱ ASSIGN TIME MODAL (When clicking directly on clock without prior selection) */}
+      {slotModal?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div>
+              <h3 className="text-base font-black text-slate-900">
+                Assign Work at {String(slotModal.hour).padStart(2, "0")}:00
+              </h3>
+              <p className="text-xs text-slate-500">
+                Select an unscheduled task to assign to this time slot.
+              </p>
+            </div>
+
+            {unscheduledTasks.length > 0 ? (
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-700">Choose Task</label>
+                <select
+                  value={slotModal.taskId}
+                  onChange={(e) => setSlotModal({ ...slotModal, taskId: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 p-2 text-xs font-medium text-slate-800 outline-none focus:border-purple-500"
+                >
+                  {unscheduledTasks.map((task) => (
+                    <option key={task.id} value={task.id}>
+                      {task.title} ({task.estimatedMinutes || 60}m)
+                    </option>
+                  ))}
+                </select>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Slot Duration</label>
+                  <div className="flex gap-2">
+                    {[30, 45, 60, 90].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => setSlotModal({ ...slotModal, duration: mins })}
+                        className={`flex-1 rounded-lg py-1 text-xs font-bold border transition ${
+                          slotModal.duration === mins
+                            ? "border-purple-600 bg-purple-50 text-purple-700"
+                            : "border-slate-200 hover:bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        {mins}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500">
+                No unscheduled tasks found in your backlog.
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSlotModal(null)}
+                className="rounded-xl"
+              >
+                Cancel
+              </Button>
+              {unscheduledTasks.length > 0 && (
+                <Button
+                  size="sm"
+                  disabled={isAssigning || !slotModal.taskId}
+                  onClick={() =>
+                    assignTaskToHour(slotModal.taskId!, slotModal.hour, slotModal.duration)
+                  }
+                  className="rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold"
+                >
+                  {isAssigning ? "Scheduling..." : "Assign Task"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
