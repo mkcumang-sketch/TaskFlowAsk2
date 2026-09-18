@@ -211,7 +211,7 @@ export function SPSidebar({
             </div>
           )}*/}
           
-         
+         []
         </div>
 
         {/* 4. Organization & Portfolio */}
