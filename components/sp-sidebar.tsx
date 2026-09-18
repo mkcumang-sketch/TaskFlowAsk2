@@ -240,7 +240,7 @@ export function SPSidebar({
          
          
         </div>
-      </div>
+      
 
       {/* User Footer Card */}
       <div className="border-t border-slate-100 pt-3.5 mt-4">
