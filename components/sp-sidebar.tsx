@@ -155,6 +155,7 @@ export function SPSidebar({
         isMobile ? "w-full border-r-0" : collapsed ? "w-20" : "w-80"
       }`}
     >
+      {/* Scrollable Upper Section */}
       <div className="space-y-6 overflow-y-auto pr-1">
         {/* Header / Brand */}
         {!isMobile && (
@@ -202,19 +203,7 @@ export function SPSidebar({
           {navItem("/tasks/kanban", "Task Board", "🗂️")}
         </div>
 
-        
-         {/* 3. Execution & Routines */}
-        <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
-          {(!collapsed || isMobile) && (
-            <div className="px-3 pb-1 text-xs font-black uppercase tracking-widest text-slate-500">
-              Execution
-            </div>
-          )}
-          
-         []
-        </div>
-
-        {/* 4. Organization & Portfolio */}
+        {/* 2. Organization & Portfolio */}
         <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
           {(!collapsed || isMobile) && (
             <div className="px-3 pb-1 text-xs font-black uppercase tracking-widest text-slate-500">
@@ -222,14 +211,13 @@ export function SPSidebar({
             </div>
           )}
           {isManager && navItem("/dashboard", "Dashboard", "📊")}
-         
           {navItem("/projects", "Projects", "📁")}
           {navItem("/reports", "Reports", "📈")}
           {navItem("/calendar", "Calendar", "📆")}
           {navItem("/notifications", "Notifications", "🔔")}
         </div>
 
-        {/* 5. System & Administration */}
+        {/* 3. System & Administration */}
         <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
           {(!collapsed || isMobile) && (
             <div className="px-3 pb-1 text-xs font-black uppercase tracking-widest text-slate-500">
@@ -237,10 +225,8 @@ export function SPSidebar({
             </div>
           )}
           {navItem("/automations", "Automations", "⚡")}
-         
-         
         </div>
-      
+      </div>
 
       {/* User Footer Card */}
       <div className="border-t border-slate-100 pt-3.5 mt-4">
