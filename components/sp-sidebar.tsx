@@ -203,13 +203,13 @@ export function SPSidebar({
         </div>
 
         
-        {/* 3. Execution & Routines */}
-        <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
+         {/* 3. Execution & Routines */}
+      { /* <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
           {(!collapsed || isMobile) && (
             <div className="px-3 pb-1 text-xs font-black uppercase tracking-widest text-slate-500">
               Execution
             </div>
-          )}
+          )}*/}
           
          
         </div>
