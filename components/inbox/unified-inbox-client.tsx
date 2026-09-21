@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from `"next/navigation"`;
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 interface NotificationItem {
@@ -142,12 +142,12 @@ export function UnifiedInboxClient({
         </div>
       </div>
 
-      {/* 3-Pane Command Layout (Viewport Constrained + Independent Inner Scrollbars) */}
+      {/* 3-Pane Command Layout */}
       <div
         style={{ height: "calc(100vh - 230px)", maxHeight: "720px", minHeight: "500px" }}
         className="grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden rounded-3xl border border-slate-200/90 bg-white/95 shadow-2xl shadow-slate-200/50 backdrop-blur-xl"
       >
-        {/* Pane 1: Category Navigator (Col 3) */}
+        {/* Pane 1: Category Navigator */}
         <div className="lg:col-span-3 border-r border-slate-100 p-3.5 flex flex-col min-h-0">
           <span className="px-2 pb-2 text-[10px] font-black uppercase tracking-wider text-slate-400 shrink-0">
             Channels & Feeds
@@ -186,7 +186,7 @@ export function UnifiedInboxClient({
           </div>
         </div>
 
-        {/* Pane 2: Notification Stream (Col 4) */}
+        {/* Pane 2: Notification Stream */}
         <div className="lg:col-span-4 border-r border-slate-100 flex flex-col min-h-0 bg-slate-50/30">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 shrink-0 bg-white">
             <span className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -243,7 +243,7 @@ export function UnifiedInboxClient({
           </div>
         </div>
 
-        {/* Pane 3: Detail & Action Workspace (Col 5) */}
+        {/* Pane 3: Detail & Action Workspace */}
         <div className="lg:col-span-5 p-5 flex flex-col justify-between min-h-0 bg-slate-50/40">
           {selectedNotification ? (
             <div className="flex flex-col h-full justify-between min-h-0 space-y-4">
