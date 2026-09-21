@@ -12,18 +12,29 @@ export interface SPCounterData {
   teamPool: number;
 }
 
+export interface UserProfileData {
+  name: string;
+  role: string;
+  department: string;
+  totalTasks: number;
+}
+
 export interface SPSidebarProps {
   initialCounts?: Partial<SPCounterData>;
   userRole?: string;
   userName?: string;
+  departmentName?: string;
+  totalTasksCount?: number;
   isMobile?: boolean;
   onClose?: () => void;
 }
 
 export function SPSidebar({
   initialCounts,
-  userRole = "EMPLOYEE",
-  userName,
+  userRole = "ADMIN",
+  userName = "Active User",
+  departmentName = "Operations",
+  totalTasksCount = 0,
   isMobile = false,
   onClose,
 }: SPSidebarProps) {
@@ -39,34 +50,56 @@ export function SPSidebar({
   });
 
   const [collapsed, setCollapsed] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [profile, setProfile] = useState<UserProfileData>({
+    name: userName,
+    role: userRole,
+    department: departmentName,
+    totalTasks: totalTasksCount,
+  });
+
   const isManager =
     userRole === "SUPER_ADMIN" ||
     userRole === "ADMIN" ||
     userRole === "OWNER" ||
     userRole === "MANAGER";
 
-  // Visibility-aware polling
+  // Fetch Live Counters and User Profile Stats
   useEffect(() => {
     let isMounted = true;
 
-    async function fetchCounters() {
+    async function fetchSidebarData() {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       try {
-        const res = await fetch("/api/sp/counters");
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted) setCounts(data);
+        const [counterRes, profileRes] = await Promise.all([
+          fetch("/api/sp/counters").catch(() => null),
+          fetch("/api/users/me").catch(() => null),
+        ]);
+
+        if (counterRes?.ok && isMounted) {
+          const data = await counterRes.json();
+          setCounts(data);
+        }
+
+        if (profileRes?.ok && isMounted) {
+          const userData = await profileRes.json();
+          setProfile({
+            name: userData.name || userName,
+            role: userData.role?.name || userData.role || userRole,
+            department: userData.department?.name || userData.department || departmentName,
+            totalTasks: userData._count?.tasks ?? userData.totalTasks ?? totalTasksCount,
+          });
         }
       } catch (err) {
-        console.error("Counter sync error:", err);
+        console.error("Sidebar sync error:", err);
       }
     }
 
-    fetchCounters();
-    const interval = setInterval(fetchCounters, 30000);
+    fetchSidebarData();
+    const interval = setInterval(fetchSidebarData, 30000);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") fetchCounters();
+      if (document.visibilityState === "visible") fetchSidebarData();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -75,9 +108,22 @@ export function SPSidebar({
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [userName, userRole, departmentName, totalTasksCount]);
 
-  // Global Keyboard Navigation
+  // Sign out / Log out handler
+  const handleSignOut = async () => {
+    setIsLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  };
+
+  // Global Keyboard Shortcuts
   useEffect(() => {
     if (isMobile) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -155,9 +201,8 @@ export function SPSidebar({
         isMobile ? "w-full border-r-0" : collapsed ? "w-20" : "w-80"
       }`}
     >
-      {/* Scrollable Upper Section */}
-      <div className="space-y-6 overflow-y-auto pr-1">
-        {/* Header / Brand */}
+      {/* Scrollable Upper Navigation */}
+      <div className="space-y-6 overflow-y-auto pr-1 custom-kanban-scroll">
         {!isMobile && (
           <div className="flex items-center justify-between px-2 py-1.5 mb-2">
             {!collapsed && (
@@ -170,7 +215,7 @@ export function SPSidebar({
                     TaskFlow
                   </span>
                   <span className="text-[10px] font-black tracking-widest uppercase text-purple-600">
-                    Super Productivity
+                    SUPER PRODUCTIVITY
                   </span>
                 </div>
               </div>
@@ -179,7 +224,7 @@ export function SPSidebar({
             <button
               type="button"
               onClick={() => setCollapsed(!collapsed)}
-              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition active:scale-95"
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition active:scale-95 cursor-pointer"
               title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
               {collapsed ? "→" : "←"}
@@ -203,7 +248,7 @@ export function SPSidebar({
           {navItem("/tasks/kanban", "Task Board", "🗂️")}
         </div>
 
-        {/* 2. Organization & Portfolio */}
+        {/* 2. Organization */}
         <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
           {(!collapsed || isMobile) && (
             <div className="px-3 pb-1 text-xs font-black uppercase tracking-widest text-slate-500">
@@ -217,7 +262,7 @@ export function SPSidebar({
           {navItem("/notifications", "Notifications", "🔔")}
         </div>
 
-        {/* 3. System & Administration */}
+        {/* 3. System */}
         <div className="space-y-1.5 border-t border-slate-100 pt-3.5">
           {(!collapsed || isMobile) && (
             <div className="px-3 pb-1 text-xs font-black uppercase tracking-widest text-slate-500">
@@ -228,20 +273,56 @@ export function SPSidebar({
         </div>
       </div>
 
-      {/* User Footer Card */}
-      <div className="border-t border-slate-100 pt-3.5 mt-4">
-        <div className="flex items-center gap-3 rounded-2xl bg-slate-50 border border-slate-200/80 p-3 shadow-xs">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-600 text-sm font-black text-white shadow-md shadow-purple-600/25">
-            {userName ? userName.charAt(0).toUpperCase() : "U"}
+      {/* 🔴 User Profile Component (Under Red Line) */}
+      <div className="border-t border-slate-200/90 pt-3.5 mt-3 shrink-0">
+        <div className="rounded-[24px] bg-gradient-to-b from-slate-50 to-white border border-slate-200/90 p-3.5 shadow-sm space-y-3">
+          {/* Row 1: Avatar, Name, Department & Role */}
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-sm font-black text-white shadow-md shadow-purple-600/30">
+                {profile.name ? profile.name.charAt(0).toUpperCase() : "U"}
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-xs" />
+            </div>
+
+            {(!collapsed || isMobile) && (
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="truncate text-sm font-black text-slate-900 leading-tight">
+                  {profile.name}
+                </span>
+
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-md bg-purple-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-purple-700 font-mono">
+                    {profile.role}
+                  </span>
+                  <span className="truncate text-[11px] font-bold text-slate-500">
+                    • {profile.department}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Row 2: Total Tasks & Sign Out Button */}
           {(!collapsed || isMobile) && (
-            <div className="flex flex-col min-w-0 flex-1">
-              <span className="truncate text-sm font-black text-slate-950 tracking-tight">
-                {userName || "Active User"}
-              </span>
-              <span className="text-[11px] font-extrabold text-purple-700 uppercase tracking-wider">
-                {userRole}
-              </span>
+            <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-extrabold text-slate-500">Tasks:</span>
+                <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-black text-slate-800 font-mono">
+                  {profile.totalTasks}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={isLoggingOut}
+                className="flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition active:scale-95 cursor-pointer shadow-xs"
+                title="Sign out of account"
+              >
+                <span>🚪</span>
+                <span>{isLoggingOut ? "Leaving..." : "Log Out"}</span>
+              </button>
             </div>
           )}
         </div>
