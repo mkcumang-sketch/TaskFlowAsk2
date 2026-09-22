@@ -3,9 +3,18 @@ import { AppShell } from "@/components/app-shell";
 import { prisma } from "@/lib/prisma";
 import { InboxView } from "@/components/inbox/inbox-view";
 
+export const dynamic = "force-dynamic";
+
 export default async function InboxPage() {
   const user = await requireUser();
   const organizationId = user.organizationId!;
+
+  // Current user ka departmentId fetch karein
+  const currentUserRecord = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { departmentId: true },
+  });
+  const userDepartmentId = currentUserRecord?.departmentId ?? null;
 
   // 1. Ensure Default Company All-Hands Conversation exists
   let companyChat = await prisma.conversation.findFirst({
@@ -33,7 +42,7 @@ export default async function InboxPage() {
     });
   }
 
-  // 2. Parallel Database Queries
+  // 2. Parallel Database Queries (Strict Department Isolation)
   const [notifications, conversations, users] = await Promise.all([
     // Active Notifications
     prisma.notification.findMany({
@@ -46,11 +55,16 @@ export default async function InboxPage() {
       take: 50,
     }),
 
-    // Group, Department & Project Conversations
+    // Sirf vahi groups fetch karein jiska department user ke department se match kare ya All-Hands ho
     prisma.conversation.findMany({
       where: {
         organizationId,
         type: { not: "DIRECT" },
+        OR: [
+          { type: "COMPANY_ALL_HANDS" },
+          { participants: { some: { userId: user.id } } },
+          ...(userDepartmentId ? [{ departmentId: userDepartmentId }] : []),
+        ],
       },
       include: {
         department: { select: { id: true, name: true } },
@@ -72,7 +86,7 @@ export default async function InboxPage() {
       orderBy: { lastMessageAt: "desc" },
     }),
 
-    // Organization Directory with Presence Status
+    // Organization Directory
     prisma.user.findMany({
       where: { organizationId },
       select: {
@@ -90,7 +104,6 @@ export default async function InboxPage() {
     }),
   ]);
 
-  // Extract a clean string role for both the AppShell and the Client view
   const userRoleString: string =
     typeof user.role === "string"
       ? user.role
