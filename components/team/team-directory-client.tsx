@@ -40,7 +40,8 @@ export function TeamDirectoryClient({
   // Form State
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [selectedDeptId, setSelectedDeptId] = useState(departments[0]?.id || "NEW");
+  const [selectedDeptIds, setSelectedDeptIds] = useState<string[]>([]);
+  const [showCustomDept, setShowCustomDept] = useState(false);
   const [customDeptName, setCustomDeptName] = useState("");
   const [roleName, setRoleName] = useState("EMPLOYEE");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,9 +63,20 @@ export function TeamDirectoryClient({
     );
   });
 
+  const toggleDepartment = (deptId: string) => {
+    setSelectedDeptIds((prev) =>
+      prev.includes(deptId) ? prev.filter((id) => id !== deptId) : [...prev, deptId]
+    );
+  };
+
   const handleCreateMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || isSubmitting) return;
+
+    if (selectedDeptIds.length === 0 && !customDeptName.trim()) {
+      alert("Please select at least one department or enter a new one.");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -72,15 +84,9 @@ export function TeamDirectoryClient({
         name: name.trim(),
         email: email.trim(),
         roleName,
+        departmentIds: selectedDeptIds,
+        newDepartmentName: customDeptName.trim() || undefined,
       };
-
-      if (selectedDeptId === "NEW") {
-        payload.departmentName = customDeptName.trim();
-      } else {
-        payload.departmentId = selectedDeptId;
-        const matched = departments.find((d) => d.id === selectedDeptId);
-        if (matched) payload.departmentName = matched.name;
-      }
 
       const res = await fetch("/api/team", {
         method: "POST",
@@ -94,7 +100,9 @@ export function TeamDirectoryClient({
         setShowAddModal(false);
         setName("");
         setEmail("");
+        setSelectedDeptIds([]);
         setCustomDeptName("");
+        setShowCustomDept(false);
         router.refresh();
       } else {
         const err = await res.json();
@@ -209,10 +217,10 @@ export function TeamDirectoryClient({
         })}
       </div>
 
-      {/* Modal: Add Employee */}
+      {/* Modal: Add Employee with Multi-Department Selection */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-[30px] border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md rounded-[30px] border border-slate-200 bg-white p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 font-mono">
@@ -254,31 +262,61 @@ export function TeamDirectoryClient({
                 />
               </div>
 
+              {/* Multi-Select Department Checkboxes */}
               <div>
-                <label className="text-[11px] font-black uppercase text-slate-700">
-                  Select Department (Auto-creates Group Chat)
-                </label>
-                <select
-                  value={selectedDeptId}
-                  onChange={(e) => setSelectedDeptId(e.target.value)}
-                  className="mt-1 w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-900 outline-none focus:border-purple-600 cursor-pointer"
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-black uppercase text-slate-700">
+                    Assign Groups / Departments (Check 1 or more)
+                  </label>
+                  <span className="text-[10px] font-mono text-purple-700 font-bold">
+                    {selectedDeptIds.length} Selected
+                  </span>
+                </div>
+
+                <div className="mt-1.5 max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/70 p-2 space-y-1.5">
+                  {departments.length === 0 ? (
+                    <p className="text-xs text-slate-400 p-2 text-center">No existing departments found.</p>
+                  ) : (
+                    departments.map((dept) => {
+                      const isChecked = selectedDeptIds.includes(dept.id);
+                      return (
+                        <label
+                          key={dept.id}
+                          className={`flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition text-xs font-bold ${
+                            isChecked
+                              ? "bg-purple-100/90 text-purple-900 border border-purple-200"
+                              : "hover:bg-slate-200/60 text-slate-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleDepartment(dept.id)}
+                            className="h-4 w-4 rounded accent-purple-600 cursor-pointer"
+                          />
+                          <span>🏢 {dept.name} Team</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Option to create a new department */}
+                <button
+                  type="button"
+                  onClick={() => setShowCustomDept(!showCustomDept)}
+                  className="mt-2 text-[11px] font-extrabold text-purple-600 hover:text-purple-800 transition cursor-pointer"
                 >
-                  {departments.map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      🏢 {dept.name}
-                    </option>
-                  ))}
-                  <option value="NEW">+ Create New Department...</option>
-                </select>
+                  {showCustomDept ? "- Hide New Department" : "+ Add Another / New Department..."}
+                </button>
               </div>
 
-              {selectedDeptId === "NEW" && (
+              {showCustomDept && (
                 <div>
-                  <label className="text-[11px] font-black uppercase text-slate-700">New Department Name *</label>
+                  <label className="text-[11px] font-black uppercase text-slate-700">New Department Name</label>
                   <input
-                    required
                     type="text"
-                    placeholder="e.g. Design & Architecture"
+                    placeholder="e.g. Operations & Logistics"
                     value={customDeptName}
                     onChange={(e) => setCustomDeptName(e.target.value)}
                     className="mt-1 w-full h-10 rounded-xl border border-purple-300 bg-purple-50/40 px-3.5 text-xs font-bold text-slate-900 outline-none focus:border-purple-600 transition"
@@ -313,7 +351,7 @@ export function TeamDirectoryClient({
                   disabled={isSubmitting}
                   className="rounded-xl bg-purple-600 hover:bg-purple-700 text-xs font-black text-white px-5 cursor-pointer shadow-sm"
                 >
-                  {isSubmitting ? "Authorizing..." : "Add & Link Group"}
+                  {isSubmitting ? "Authorizing..." : "Add to Groups"}
                 </Button>
               </div>
             </form>

@@ -4,9 +4,9 @@ import { prisma } from "@/lib/prisma";
 
 function generateMemberCode(name: string, departmentName?: string): string {
   const cleanName = name.replace(/[^a-zA-Z]/g, "").slice(0, 6) || "USER";
-  const deptTag = departmentName ? departmentName.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase() : "";
+  const deptTag = departmentName ? departmentName.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase() : "EMP";
   const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  return deptTag ? `${cleanName}${deptTag}${randomSuffix}` : `${cleanName}${randomSuffix}`;
+  return `${cleanName}${deptTag}${randomSuffix}`;
 }
 
 export async function POST(request: Request) {
@@ -17,7 +17,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, email, departmentId, departmentName, roleName = "EMPLOYEE" } = body;
+    const {
+      name,
+      email,
+      departmentId,
+      departmentIds = [],
+      newDepartmentName,
+      roleName = "EMPLOYEE",
+    } = body;
 
     if (!name?.trim() || !email?.trim()) {
       return NextResponse.json({ error: "Name and Official Google Email are required" }, { status: 400 });
@@ -33,44 +40,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "An employee with this Google email is already authorized" }, { status: 400 });
     }
 
-    // 1. Resolve or Create Department
-    let targetDeptId: string | null = null;
-    let targetDeptRecord: any = null;
-
-    if (departmentId) {
-      targetDeptRecord = await prisma.department.findFirst({
-        where: {
-          id: departmentId,
-          organizationId: session.organizationId,
-        },
-      });
-      if (targetDeptRecord) targetDeptId = targetDeptRecord.id;
+    // 1. Gather all department IDs (single or multiple)
+    const targetDeptIds: string[] = Array.isArray(departmentIds) ? [...departmentIds] : [];
+    if (departmentId && !targetDeptIds.includes(departmentId)) {
+      targetDeptIds.push(departmentId);
     }
 
-    if (!targetDeptId && departmentName?.trim()) {
-      targetDeptRecord = await prisma.department.findFirst({
+    // Agar user ne naya department enter kiya ho
+    if (newDepartmentName?.trim()) {
+      let createdDept = await prisma.department.findFirst({
         where: {
           organizationId: session.organizationId,
-          name: departmentName.trim(),
+          name: newDepartmentName.trim(),
         },
       });
 
-      if (!targetDeptRecord) {
-        targetDeptRecord = await prisma.department.create({
+      if (!createdDept) {
+        createdDept = await prisma.department.create({
           data: {
             organizationId: session.organizationId,
-            name: departmentName.trim(),
+            name: newDepartmentName.trim(),
           },
         });
       }
-      targetDeptId = targetDeptRecord.id;
+      if (!targetDeptIds.includes(createdDept.id)) {
+        targetDeptIds.push(createdDept.id);
+      }
     }
 
-    // 2. Member code generation
-    let generatedCode = generateMemberCode(name, targetDeptRecord?.name);
+    // Primary department for User table
+    const primaryDeptId = targetDeptIds[0] || null;
+
+    // 2. Fetch primary department info for Member Code
+    let primaryDeptName: string | undefined = undefined;
+    if (primaryDeptId) {
+      const pDept = await prisma.department.findUnique({ where: { id: primaryDeptId } });
+      if (pDept) primaryDeptName = pDept.name;
+    }
+
+    let generatedCode = generateMemberCode(name, primaryDeptName);
     let codeConflict = await prisma.user.findFirst({ where: { memberCode: generatedCode } });
     while (codeConflict) {
-      generatedCode = generateMemberCode(name, targetDeptRecord?.name);
+      generatedCode = generateMemberCode(name, primaryDeptName);
       codeConflict = await prisma.user.findFirst({ where: { memberCode: generatedCode } });
     }
 
@@ -85,7 +96,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 4. Create the new Employee
+    // 4. Create Employee
     const newMember = await prisma.user.create({
       data: {
         organizationId: session.organizationId,
@@ -93,7 +104,7 @@ export async function POST(request: Request) {
         email: normalizedEmail,
         memberCode: generatedCode,
         passwordHash: null,
-        departmentId: targetDeptId,
+        departmentId: primaryDeptId,
         roleId: roleRecord.id,
         presenceStatus: "OFFLINE",
       },
@@ -103,13 +114,16 @@ export async function POST(request: Request) {
       },
     });
 
-    // 5. Auto-Create Group Chat for Department & Auto-Enroll User
-    if (targetDeptId && targetDeptRecord) {
+    // 5. Auto-Create Group Chat & Auto-Enroll User into ALL Selected Departments
+    for (const dId of targetDeptIds) {
       try {
+        const dept = await prisma.department.findUnique({ where: { id: dId } });
+        if (!dept) continue;
+
         let groupConversation = await prisma.conversation.findFirst({
           where: {
             organizationId: session.organizationId,
-            departmentId: targetDeptId,
+            departmentId: dId,
             type: "DEPARTMENT",
           },
         });
@@ -118,15 +132,15 @@ export async function POST(request: Request) {
           groupConversation = await prisma.conversation.create({
             data: {
               organizationId: session.organizationId,
-              departmentId: targetDeptId,
+              departmentId: dId,
               type: "DEPARTMENT",
-              name: `${targetDeptRecord.name} Team`,
-              description: `Official channel for ${targetDeptRecord.name} department.`,
+              name: `${dept.name} Team`,
+              description: `Official channel for ${dept.name} department.`,
             },
           });
         }
 
-        // Add member to group conversation
+        // Add user to conversation participants
         await prisma.conversationParticipant.upsert({
           where: {
             conversationId_userId: {
@@ -141,8 +155,8 @@ export async function POST(request: Request) {
           },
           update: {},
         });
-      } catch (chatErr) {
-        console.warn("Auto-join department group skipped (non-fatal):", chatErr);
+      } catch (groupErr) {
+        console.warn(`Failed to auto-join dept ${dId}:`, groupErr);
       }
     }
 
