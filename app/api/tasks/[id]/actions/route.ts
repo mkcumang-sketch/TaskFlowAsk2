@@ -81,7 +81,6 @@ export async function POST(
       try {
         const allowed = canTransition(currentState, nextState);
         if (!allowed && currentState !== nextState) {
-          // If strict transition fails, only reject if not accepting an assigned task
           if (!(currentState === "ASSIGNED" && nextState === "IN_PROGRESS")) {
             return NextResponse.json(
               { error: `Cannot transition task from ${currentState} to ${nextState}` },
@@ -121,8 +120,7 @@ export async function POST(
           create: {
             taskId: task.id,
             userId: currentUserId,
-            assignedAt: now,
-          },
+          } as any,
           update: {},
         });
       }
@@ -133,7 +131,7 @@ export async function POST(
       data: updateData as any,
     });
 
-    // 5. Save comment safely using authorId (schema definition)
+    // 5. Save comment safely using authorId
     if (feedback && feedback.trim()) {
       try {
         if ((prisma as any).comment) {
