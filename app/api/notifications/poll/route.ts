@@ -15,23 +15,25 @@ export async function GET() {
     }
 
     const now = new Date();
+    const recentWindow = new Date(now.getTime() - 25 * 1000);
 
-    // 1. Recent chat messages where current user is a channel member
-    const recentMessages = await prisma.message.findMany({
+    // 1. In-App Notifications for chats or urgent alerts (Strictly Type Safe)
+    const recentNotifications = await prisma.notification.findMany({
       where: {
-        createdAt: { gte: new Date(now.getTime() - 15 * 1000) },
-        senderId: { not: currentUserId },
-        channel: {
-          members: { some: { userId: currentUserId } },
-        },
+        userId: currentUserId,
+        createdAt: { gte: recentWindow },
       },
-      include: {
-        sender: { select: { name: true, email: true } },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        link: true,
+        category: true,
       },
-      take: 3,
+      take: 4,
     }).catch(() => []);
 
-    // 2. Newly assigned tasks waiting for acceptance
+    // 2. Newly assigned tasks waiting for acceptance (< 1 hour SLA)
     const pendingAssignedTasks = await prisma.task.findMany({
       where: {
         organizationId,
@@ -45,7 +47,7 @@ export async function GET() {
         createdAt: true,
       },
       take: 5,
-    });
+    }).catch(() => []);
 
     // 3. Overdue SLA Tasks
     const overdueTasks = await prisma.task.findMany({
@@ -62,7 +64,7 @@ export async function GET() {
         dueAt: true,
       },
       take: 5,
-    });
+    }).catch(() => []);
 
     // 4. Running Active Tasks (for 10-min reminder check)
     const inProgressTasks = await prisma.task.findMany({
@@ -79,11 +81,11 @@ export async function GET() {
         dueAt: true,
       },
       take: 3,
-    });
+    }).catch(() => []);
 
     return NextResponse.json({
       success: true,
-      recentMessages,
+      recentNotifications,
       pendingAssignedTasks,
       overdueTasks,
       inProgressTasks,
