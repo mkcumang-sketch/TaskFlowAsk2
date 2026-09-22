@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const session = await getSession();
-    if (!session?.id) {
+    const currentUserId = (session as any)?.userId || (session as any)?.id;
+
+    if (!session || !currentUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -13,7 +17,7 @@ export async function POST(request: Request) {
     const status = body.status === "OFFLINE" ? "OFFLINE" : "ONLINE";
 
     await prisma.user.update({
-      where: { id: session.id },
+      where: { id: currentUserId },
       data: {
         presenceStatus: status,
         lastSeenAt: new Date(),
