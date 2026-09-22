@@ -60,7 +60,7 @@ const COLUMNS = [
 ];
 
 const PRIORITIES = [
-  { id: "P1", label: "P1 • Urgent (1h)", badge: "bg-rose-500 text-white animate-pulse" },
+  { id: "P1", label: "P1 • Urgent", badge: "bg-rose-500 text-white animate-pulse" },
   { id: "P2", label: "P2 • 4h SLA", badge: "bg-orange-500 text-white" },
   { id: "P3", label: "P3 • 8h SLA", badge: "bg-amber-500 text-white" },
   { id: "P4", label: "P4 • 24h SLA", badge: "bg-blue-600 text-white" },

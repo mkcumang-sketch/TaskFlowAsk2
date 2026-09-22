@@ -228,15 +228,15 @@ export function TaskListClient({
   };
 
   return (
-    <div className="relative min-h-[88vh] w-full space-y-6 font-sans select-none">
+    <div className="w-full space-y-4 md:space-y-6 font-sans select-none overflow-hidden">
       {/* 🧭 Top High-Contrast Control Toolbar */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 rounded-[26px] border border-slate-200/90 bg-white p-3.5 shadow-sm backdrop-blur-xl">
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 md:gap-4 rounded-2xl md:rounded-[26px] border border-slate-200/90 bg-white p-3 md:p-3.5 shadow-sm">
         {/* Left: View Switcher */}
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200/80 w-fit">
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/80 w-full sm:w-fit justify-between sm:justify-start">
           <button
             type="button"
             onClick={() => setViewMode("KANBAN")}
-            className={`cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-black tracking-wider transition ${
+            className={`flex-1 sm:flex-none cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-black tracking-wider transition ${
               viewMode === "KANBAN"
                 ? "bg-purple-600 text-white shadow-sm ring-1 ring-purple-400"
                 : "text-slate-600 hover:text-slate-900"
@@ -247,7 +247,7 @@ export function TaskListClient({
           <button
             type="button"
             onClick={() => setViewMode("LIST")}
-            className={`cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-black tracking-wider transition ${
+            className={`flex-1 sm:flex-none cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-black tracking-wider transition ${
               viewMode === "LIST"
                 ? "bg-purple-600 text-white shadow-sm ring-1 ring-purple-400"
                 : "text-slate-600 hover:text-slate-900"
@@ -258,12 +258,12 @@ export function TaskListClient({
         </div>
 
         {/* Right: Search, Project, Priority & Action */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 md:gap-2.5">
           {/* Project Filter */}
           <select
             value={projectFilter}
             onChange={(e) => setProjectFilter(e.target.value)}
-            className="h-9 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none hover:border-slate-300 focus:border-purple-600 transition"
+            className="flex-1 sm:flex-none h-9 cursor-pointer rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none hover:border-slate-300 focus:border-purple-600 transition"
           >
             <option value="ALL">All Projects</option>
             {projects.map((p) => (
@@ -275,7 +275,7 @@ export function TaskListClient({
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
-            className="h-9 cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none hover:border-slate-300 focus:border-purple-600 transition"
+            className="flex-1 sm:flex-none h-9 cursor-pointer rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none hover:border-slate-300 focus:border-purple-600 transition"
           >
             <option value="ALL">All Priorities</option>
             <option value="P1">P1 • Urgent</option>
@@ -286,31 +286,31 @@ export function TaskListClient({
           </select>
 
           {/* Search Box */}
-          <div className="relative flex-1 sm:w-56">
+          <div className="relative w-full sm:w-52 md:w-60">
             <input
               type="text"
               placeholder="Search deliverables..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 text-xs font-semibold text-slate-900 placeholder-slate-400 outline-none focus:border-purple-600 focus:bg-white transition"
+              className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-3 pr-8 text-xs font-semibold text-slate-900 placeholder-slate-400 outline-none focus:border-purple-600 focus:bg-white transition"
             />
-            <span className="absolute right-3 top-2.5 text-xs text-slate-400">🔍</span>
+            <span className="absolute right-2.5 top-2.5 text-xs text-slate-400">🔍</span>
           </div>
 
           {/* Launch Modal Button */}
           <Button
             type="button"
             onClick={() => setShowCreateModal(true)}
-            className="h-9 rounded-xl bg-purple-600 hover:bg-purple-700 text-xs font-black text-white px-4 shadow-sm shadow-purple-500/25 transition cursor-pointer"
+            className="w-full sm:w-auto h-9 rounded-xl bg-purple-600 hover:bg-purple-700 text-xs font-black text-white px-4 shadow-sm shadow-purple-500/25 transition cursor-pointer"
           >
             ✨ Create Task
           </Button>
         </div>
       </div>
 
-      {/* ▦ KANBAN BOARD VIEW */}
+      {/* ▦ KANBAN BOARD VIEW (Mobile Friendly Touch Scroll + Fixed Length Columns) */}
       {viewMode === "KANBAN" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 items-start">
+        <div className="flex gap-4 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory xl:grid xl:grid-cols-4 xl:overflow-visible custom-kanban-scroll">
           {KANBAN_COLUMNS.map((col) => {
             const columnTasks = filteredTasks.filter((t) => {
               if (col.id === "ASSIGNED") return t.status === "ASSIGNED" || t.status === "DRAFT";
@@ -320,10 +320,10 @@ export function TaskListClient({
             return (
               <div
                 key={col.id}
-                className={`flex flex-col rounded-[26px] border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm min-h-[580px] border-t-4 ${col.borderTop}`}
+                className={`w-[85vw] sm:w-[320px] md:w-[340px] xl:w-auto shrink-0 snap-center flex flex-col rounded-2xl md:rounded-[26px] border border-slate-200/90 bg-slate-50/80 p-3.5 shadow-sm border-t-4 ${col.borderTop} h-[calc(100vh-250px)] min-h-[480px] max-h-[720px]`}
               >
                 {/* Column Header */}
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200/70 px-1">
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/70 px-1 shrink-0">
                   <div className="flex items-center gap-2">
                     <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
                     <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">
@@ -335,10 +335,10 @@ export function TaskListClient({
                   </span>
                 </div>
 
-                {/* Column Tasks Container */}
-                <div className="mt-3.5 space-y-3 flex-1 overflow-y-auto pr-0.5 custom-kanban-scroll">
+                {/* Column Tasks Container (Fixed Length + Custom Scrollbar) */}
+                <div className="mt-3 space-y-3 flex-1 min-h-0 overflow-y-auto pr-1.5 custom-kanban-scroll">
                   {columnTasks.length === 0 ? (
-                    <div className="flex h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-center">
+                    <div className="flex h-44 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-center">
                       <span className="text-lg opacity-40">☕</span>
                       <span className="mt-1 text-xs font-bold text-slate-400">
                         No tasks in this stage
@@ -356,7 +356,7 @@ export function TaskListClient({
                       return (
                         <div
                           key={task.id}
-                          className="group relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-purple-300 hover:shadow-md transition-all duration-150 space-y-3"
+                          className="group relative rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs hover:border-purple-300 hover:shadow-md transition-all duration-150 space-y-2.5"
                         >
                           <div className="flex items-start justify-between gap-2">
                             <Link
@@ -382,12 +382,12 @@ export function TaskListClient({
                           {(task.project || task.department) && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                               {task.project && (
-                                <span className="rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">
+                                <span className="rounded-md bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700 truncate max-w-[140px]">
                                   📁 {task.project.name}
                                 </span>
                               )}
                               {task.department && (
-                                <span className="rounded-md bg-purple-50 border border-purple-200 px-1.5 py-0.5 text-[10px] font-bold text-purple-700">
+                                <span className="rounded-md bg-purple-50 border border-purple-200 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 truncate max-w-[140px]">
                                   🏢 {task.department.name}
                                 </span>
                               )}
@@ -395,7 +395,7 @@ export function TaskListClient({
                           )}
 
                           {/* Assignees Avatars & SLA Time */}
-                          <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
+                          <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                             <div className="flex items-center -space-x-1.5 overflow-hidden">
                               {task.assignees?.slice(0, 3).map((assignee: any, idx: number) => (
                                 <div
@@ -470,14 +470,14 @@ export function TaskListClient({
         </div>
       ) : (
         /* ☰ TABLE LIST VIEW */
-        <div className="overflow-hidden rounded-[26px] border border-slate-200/90 bg-white shadow-sm divide-y divide-slate-100">
+        <div className="overflow-hidden rounded-2xl md:rounded-[26px] border border-slate-200/90 bg-white shadow-sm divide-y divide-slate-100">
           {filteredTasks.length === 0 ? (
             <div className="p-12 text-center text-xs font-bold text-slate-400">
               No tasks found matching this criteria.
             </div>
           ) : (
             filteredTasks.map((task) => (
-              <div key={task.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 hover:bg-slate-50 transition">
+              <div key={task.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 hover:bg-slate-50 transition">
                 <div className="space-y-1">
                   <span className="font-black text-slate-900 text-xs">{task.title}</span>
                   {task.description && (
@@ -509,14 +509,14 @@ export function TaskListClient({
 
       {/* 🚀 MODAL: ASSIGN TASK */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-xl overflow-hidden rounded-[30px] border border-slate-200 bg-white p-6 md:p-7 shadow-2xl space-y-5 text-slate-900 max-h-[92vh] overflow-y-auto custom-kanban-scroll">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-3 md:p-4">
+          <div className="relative w-full max-w-xl overflow-hidden rounded-2xl md:rounded-[30px] border border-slate-200 bg-white p-5 md:p-7 shadow-2xl space-y-4 md:space-y-5 text-slate-900 max-h-[92vh] overflow-y-auto custom-kanban-scroll">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-purple-600 font-mono">
                   DISPATCH WORKFLOW
                 </span>
-                <h3 className="text-xl font-black text-slate-950 tracking-tight mt-0.5">
+                <h3 className="text-lg md:text-xl font-black text-slate-950 tracking-tight mt-0.5">
                   Create New Task
                 </h3>
               </div>
@@ -670,8 +670,8 @@ export function TaskListClient({
 
       {/* 📤 MODAL: SUBMIT DELIVERABLE */}
       {submitTaskTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl space-y-4 text-slate-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-3 md:p-4">
+          <div className="relative w-full max-w-md rounded-2xl md:rounded-[28px] border border-slate-200 bg-white p-5 md:p-6 shadow-2xl space-y-4 text-slate-900">
             <h3 className="text-lg font-black">Submit Work Proof</h3>
             <p className="text-xs text-slate-500">Deliverable for: {submitTaskTarget.title}</p>
 
