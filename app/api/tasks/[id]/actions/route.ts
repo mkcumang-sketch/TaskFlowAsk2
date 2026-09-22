@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { TaskState } from "@/lib/task-workflow";
 
 export const dynamic = "force-dynamic";
+
+// Priority-based SLA duration in hours
+const PRIORITY_HOURS: Record<string, number> = {
+  P1: 2,   // 2 Hours
+  P2: 4,   // 4 Hours
+  P3: 8,   // 8 Hours
+  P4: 24,  // 24 Hours
+  P5: 48,  // 48 Hours
+};
 
 export async function POST(
   request: Request,
@@ -28,6 +36,9 @@ export async function POST(
     const rawAction = (body.action || body.status || body.nextStatus || "").toUpperCase();
     const feedback = body.feedback || body.comment || body.reason || "";
     const holdReason = body.holdReason || body.preemptionReason || "";
+    const proofUrl = body.proofUrl || body.mediaUrl || "";
+    const proofName = body.proofName || body.mediaName || "";
+    const externalLink = body.externalLink || "";
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -51,11 +62,11 @@ export async function POST(
       );
     }
 
-    let nextState: TaskState = "IN_PROGRESS";
     const now = new Date();
     const updateData: Record<string, any> = {};
+    let nextState = task.status;
 
-    // 1. ACCEPT / START ACTION (Max 3 Active Tasks Limit)
+    // 1. ACCEPT TASK (Starts timer according to P1/P2/P3 priority)
     if (
       rawAction === "ACCEPT" ||
       rawAction === "ACCEPT_TASK" ||
@@ -73,18 +84,20 @@ export async function POST(
       if (activeRunningCount >= 3) {
         return NextResponse.json(
           {
-            error: "Aap ek samay par maximum 3 active tasks le sakte hain. Pehle kisi running task ko Hold ya Complete karein.",
+            error: "Aap ek samay par maximum 3 active tasks le sakte hain. Pehle kisi task ko Hold ya Complete karein.",
           },
           { status: 400 }
         );
       }
 
       nextState = "IN_PROGRESS";
-      if (!task.startAt) {
-        updateData.startAt = now;
-      }
+      updateData.startAt = task.startAt || now;
+
+      // Calculate priority timer SLA from acceptance moment
+      const priorityHours = PRIORITY_HOURS[task.priority] || 8;
+      updateData.dueAt = new Date(now.getTime() + priorityHours * 60 * 60 * 1000);
     }
-    // 2. HOLD / CARRY FORWARD (Reason Mandatory)
+    // 2. HOLD / PREEMPT / CARRY FORWARD
     else if (
       rawAction === "HOLD" ||
       rawAction === "HOLD_TASK" ||
@@ -92,7 +105,7 @@ export async function POST(
     ) {
       if (!holdReason?.trim() && !feedback?.trim()) {
         return NextResponse.json(
-          { error: "P1 urgent ya carry forward ka reason batana mandatory hai." },
+          { error: "Preemption / Hold reason batana zaroori hai." },
           { status: 400 }
         );
       }
@@ -100,10 +113,10 @@ export async function POST(
       nextState = "ASSIGNED";
       const reasonText = (holdReason || feedback).trim();
       updateData.description = task.description
-        ? `${task.description}\n\n[HOLD/CARRY FORWARD REASON - ${now.toLocaleTimeString()}]: ${reasonText}`
-        : `[HOLD/CARRY FORWARD REASON]: ${reasonText}`;
+        ? `${task.description}\n\n[HOLD REASON - ${now.toLocaleTimeString()}]: ${reasonText}`
+        : `[HOLD REASON]: ${reasonText}`;
     }
-    // 3. SUBMIT WORK PROOF (Employee Action)
+    // 3. SUBMIT WORK PROOF (Description + Voice / PDF / Docs + External Link)
     else if (
       rawAction === "SUBMIT" ||
       rawAction === "SUBMIT_WORK" ||
@@ -111,46 +124,37 @@ export async function POST(
       rawAction === "SUBMIT_FOR_REVIEW"
     ) {
       nextState = "REVIEW";
-      if (feedback?.trim()) {
-        updateData.description = task.description
-          ? `${task.description}\n\n[DELIVERABLE PROOF]: ${feedback.trim()}`
-          : `[DELIVERABLE PROOF]: ${feedback.trim()}`;
-      }
+
+      let proofBlock = `\n\n--- 📌 WORK SUBMISSION [${now.toLocaleString()}] ---`;
+      if (feedback?.trim()) proofBlock += `\nSummary: ${feedback.trim()}`;
+      if (externalLink?.trim()) proofBlock += `\nLink: ${externalLink.trim()}`;
+      if (proofUrl?.trim()) proofBlock += `\nAttached Deliverable (${proofName || "File"}): ${proofUrl.trim()}`;
+
+      updateData.description = task.description ? `${task.description}${proofBlock}` : proofBlock;
     }
-    // 4. APPROVE / COMPLETE (Manager Action)
+    // 4. APPROVE / COMPLETE
     else if (
       rawAction === "APPROVE" ||
       rawAction === "APPROVED" ||
       rawAction === "COMPLETE" ||
       rawAction === "COMPLETED"
     ) {
+      if (!isManagerOrAdmin) {
+        return NextResponse.json({ error: "Only Admin/Manager can approve deliverables" }, { status: 403 });
+      }
       nextState = "COMPLETED";
       updateData.completedAt = now;
     } else {
-      nextState = (rawAction || "IN_PROGRESS") as TaskState;
+      nextState = rawAction || "IN_PROGRESS";
     }
 
     updateData.status = nextState;
 
-    // Prisma update call (sirf valid schema fields ke sath)
+    // Prisma update with strictly valid schema fields (no assignedAt)
     const updated = await prisma.task.update({
       where: { id: taskId },
       data: updateData as any,
     });
-
-    if (feedback && feedback.trim() && (prisma as any).comment) {
-      try {
-        await (prisma as any).comment.create({
-          data: {
-            taskId: task.id,
-            authorId: currentUserId,
-            content: `[${nextState}] ${feedback.trim()}`,
-          },
-        });
-      } catch (commentErr) {
-        console.warn("Audit comment skipped:", commentErr);
-      }
-    }
 
     return NextResponse.json({
       success: true,
@@ -160,7 +164,7 @@ export async function POST(
   } catch (error: any) {
     console.error("Task Action Error:", error);
     return NextResponse.json(
-      { error: error?.message || "Transition failed" },
+      { error: error?.message || "Failed to update task state" },
       { status: 500 }
     );
   }
