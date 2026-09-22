@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { TodayTaskItem } from "@/components/sp/today-task-item";
 
 interface TaskItem {
   id: string;
@@ -12,25 +10,19 @@ interface TaskItem {
   description?: string | null;
   status: string;
   priority: string;
+  startAt?: string | Date | null;
+  dueAt?: string | Date | null;
   estimatedMinutes?: number | null;
   actualMinutes?: number | null;
-  dueAt?: Date | string | null;
-  recurringInterval?: string | null;
-  subtasks: Array<{ id: string; title: string; completed: boolean }>;
   project?: { id: string; name: string } | null;
-  assignees: Array<{ user: { id: string; name: string | null; email: string } }>;
-}
-
-interface HabitItem {
-  id: string;
-  name: string;
+  assignees?: Array<{ user: { id: string; name: string | null; email: string } }>;
 }
 
 interface TodayCockpitProps {
-  initialTasks: any[];
-  unplannedTasks: any[];
-  habits: HabitItem[];
-  completedHabitIds: string[];
+  initialTasks: TaskItem[];
+  unplannedTasks?: TaskItem[];
+  habits?: any[];
+  completedHabitIds?: string[];
   currentUserId: string;
   metrics: {
     totalEstimate: number;
@@ -40,497 +32,311 @@ interface TodayCockpitProps {
 }
 
 export function TodayCockpit({
-  initialTasks,
-  unplannedTasks,
-  habits,
-  completedHabitIds,
+  initialTasks = [],
+  unplannedTasks = [],
   currentUserId,
   metrics,
 }: TodayCockpitProps) {
-  const router = useRouter();
-
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(
-    initialTasks.find((t) => t.status === "IN_PROGRESS")?.id || null
-  );
-  const [timerSeconds, setTimerSeconds] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-
-  const [priorityFilter, setPriorityFilter] = useState<string>("ALL");
-  const [showInboxDrawer, setShowInboxDrawer] = useState(false);
-
-  const activeTask = useMemo(
-    () => initialTasks.find((t) => t.id === activeTaskId),
-    [initialTasks, activeTaskId]
-  );
+  // Live synchronous timer
+  const [now, setNow] = useState<number>(Date.now());
+  const [filterPriority, setFilterPriority] = useState<string>("ALL");
 
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    if (isTimerRunning && activeTaskId) {
-      interval = setInterval(() => {
-        setTimerSeconds((prev) => prev + 1);
-      }, 1000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Priority Styles & Magical Aurora Glows
+  const getPriorityStyle = (priority: string) => {
+    switch (priority?.toUpperCase()) {
+      case "P1":
+      case "URGENT":
+        return {
+          pill: "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-rose-500/25",
+          core: "bg-rose-500 shadow-rose-500/50",
+          glow: "from-rose-500/10 via-purple-500/5 to-transparent",
+          border: "group-hover:border-rose-400",
+        };
+      case "P2":
+      case "HIGH":
+        return {
+          pill: "bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-orange-500/25",
+          core: "bg-orange-500 shadow-orange-500/50",
+          glow: "from-orange-500/10 via-amber-500/5 to-transparent",
+          border: "group-hover:border-orange-400",
+        };
+      case "P3":
+      case "MEDIUM":
+        return {
+          pill: "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-blue-500/25",
+          core: "bg-blue-500 shadow-blue-500/50",
+          glow: "from-blue-500/10 via-cyan-500/5 to-transparent",
+          border: "group-hover:border-blue-400",
+        };
+      case "P4":
+      case "LOW":
+        return {
+          pill: "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-indigo-500/25",
+          core: "bg-indigo-500 shadow-indigo-500/50",
+          glow: "from-indigo-500/10 via-purple-500/5 to-transparent",
+          border: "group-hover:border-indigo-400",
+        };
+      default:
+        return {
+          pill: "bg-slate-700 text-white shadow-slate-500/20",
+          core: "bg-slate-400 shadow-slate-400/40",
+          glow: "from-slate-500/10 to-transparent",
+          border: "group-hover:border-slate-300",
+        };
     }
-    return () => {
-      if (interval) clearInterval(interval);
+  };
+
+  // Live countdown timer fetched dynamically after task is accepted
+  const getTaskSlaTimer = (task: TaskItem) => {
+    const isAccepted = task.status === "IN_PROGRESS" || Boolean(task.startAt);
+    const isCompleted = task.status === "COMPLETED" || task.status === "APPROVED";
+    const isReview = task.status === "REVIEW";
+
+    if (isCompleted) {
+      return {
+        label: "Approved ✨",
+        isOverdue: false,
+        isUrgent: false,
+        statusLabel: "Completed",
+        statusClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      };
+    }
+
+    if (isReview) {
+      return {
+        label: "Under Review 🔍",
+        isOverdue: false,
+        isUrgent: false,
+        statusLabel: "In Review",
+        statusClass: "bg-amber-50 text-amber-800 border-amber-200",
+      };
+    }
+
+    if (!isAccepted) {
+      return {
+        label: "⏳ Pending Accept",
+        isOverdue: false,
+        isUrgent: false,
+        statusLabel: "1h SLA Window",
+        statusClass: "bg-amber-50 text-amber-700 border-amber-200",
+      };
+    }
+
+    if (!task.dueAt) {
+      return {
+        label: "⚡ In Flight",
+        isOverdue: false,
+        isUrgent: false,
+        statusLabel: "Working",
+        statusClass: "bg-purple-50 text-purple-700 border-purple-200",
+      };
+    }
+
+    const diffMs = new Date(task.dueAt).getTime() - now;
+    if (diffMs <= 0) {
+      const overdueMins = Math.abs(Math.floor(diffMs / (1000 * 60)));
+      const overdueHrs = Math.floor(overdueMins / 60);
+      const remMins = overdueMins % 60;
+      return {
+        label: overdueHrs > 0 ? `🚨 Breached by ${overdueHrs}h ${remMins}m` : `🚨 Breached by ${remMins}m`,
+        isOverdue: true,
+        isUrgent: true,
+        statusLabel: "SLA Overdue",
+        statusClass: "bg-rose-50 text-rose-700 border-rose-300 animate-pulse",
+      };
+    }
+
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+    const isUrgent = diffMs < 30 * 60 * 1000;
+
+    const formattedTime = hours > 0 
+      ? `${hours}h ${mins}m left` 
+      : `${mins}m ${secs}s left`;
+
+    return {
+      label: formattedTime,
+      isOverdue: false,
+      isUrgent,
+      statusLabel: "SLA Active",
+      statusClass: isUrgent
+        ? "bg-amber-50 text-amber-800 border-amber-300"
+        : "bg-purple-50 text-purple-700 border-purple-200",
     };
-  }, [isTimerRunning, activeTaskId]);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
-
-      if (e.code === "Space" && activeTaskId) {
-        e.preventDefault();
-        setIsTimerRunning((prev) => !prev);
-      } else if (e.key === "i" || e.key === "I") {
-        setShowInboxDrawer((prev) => !prev);
-      } else if (e.key === "Escape") {
-        setShowInboxDrawer(false);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTaskId]);
-
-  const handleStopAndSave = async () => {
-    if (!activeTaskId) return;
-    const durationMinutes = Math.max(1, Math.round(timerSeconds / 60));
-
-    try {
-      await fetch(`/api/tasks/${activeTaskId}/time`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          durationMinutes,
-          note: "Today Focus Session",
-        }),
-      });
-      setIsTimerRunning(false);
-      setTimerSeconds(0);
-      router.refresh();
-    } catch (err) {
-      console.error("Timer log failed", err);
-    }
   };
 
-  const handleTriageToToday = async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "ASSIGNED",
-          dueAt: new Date().toISOString(),
-        }),
-      });
-      if (res.ok) router.refresh();
-    } catch (err) {
-      console.error("Triage failed", err);
-    }
-  };
-
-  const formatClock = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${String(mins).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  const cleanDescription = (desc?: string | null) => {
+    if (!desc) return "Active scheduled milestone";
+    return desc.split("---")[0].trim() || "Active scheduled milestone";
   };
 
   const filteredTasks = initialTasks.filter((t) => {
-    if (priorityFilter === "ALL") return true;
-    return t.priority === priorityFilter;
+    if (filterPriority === "ALL") return true;
+    const p = t.priority?.toUpperCase();
+    if (filterPriority === "P1" && (p === "P1" || p === "URGENT")) return true;
+    if (filterPriority === "P2" && (p === "P2" || p === "HIGH")) return true;
+    if (filterPriority === "P3" && (p === "P3" || p === "MEDIUM")) return true;
+    return p === filterPriority;
   });
 
-  const completedCount = initialTasks.filter(
-    (t) => t.status === "COMPLETED" || t.status === "APPROVED"
-  ).length;
-  const progressPct =
-    initialTasks.length > 0
-      ? Math.min(100, Math.round((completedCount / initialTasks.length) * 100))
-      : 0;
-
   return (
-    <div className="relative w-full space-y-7">
-      {/* 🌌 Smooth Glowing Ambient Lighting */}
-      <div className="pointer-events-none absolute -top-16 left-1/4 h-80 w-80 rounded-full bg-purple-500/15 blur-3xl animate-float-slow" />
-      <div className="pointer-events-none absolute top-64 -right-10 h-96 w-96 rounded-full bg-cyan-400/15 blur-3xl animate-float-delayed" />
+    <div className="w-full space-y-6 font-sans select-none">
+      {/* 🔮 1. TOP METRIC OVERVIEW BANNER */}
+      <div className="relative overflow-hidden rounded-[30px] border border-white/80 bg-gradient-to-r from-slate-950 via-purple-950 to-indigo-950 p-5 md:p-7 shadow-2xl text-white">
+        <div className="absolute -right-12 -top-12 h-64 w-64 rounded-full bg-purple-600/30 blur-3xl pointer-events-none" />
+        <div className="absolute left-1/3 -bottom-12 h-64 w-64 rounded-full bg-indigo-600/20 blur-3xl pointer-events-none" />
 
-      {/* 📊 1. FULL-WIDTH HERO METRIC CARDS (Responsive 1-col to 4-col) */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {/* Metric 1 */}
-        <div className="group relative overflow-hidden rounded-[26px] border border-white/80 bg-white/90 p-5 shadow-lg shadow-slate-200/50 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:border-emerald-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase">
-              Execution Rate
-            </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-100/90 text-emerald-800 text-sm shadow-inner group-hover:scale-110 transition-transform">
-              ⚡
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">
-              {completedCount}
-              <span className="text-xl font-bold text-slate-400">/{initialTasks.length}</span>
-            </span>
-            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-black text-emerald-700">
-              {progressPct}%
-            </span>
-          </div>
-          <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100 p-0.5">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-500 shadow-sm transition-all duration-700 ease-out"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Metric 2 */}
-        <div className="group relative overflow-hidden rounded-[26px] border border-white/80 bg-white/90 p-5 shadow-lg shadow-slate-200/50 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:border-indigo-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase">
-              Target Quota
-            </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100/90 text-indigo-800 text-sm shadow-inner group-hover:scale-110 transition-transform">
-              ⏱
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline gap-1.5">
-            <span className="text-3xl sm:text-4xl font-black tracking-tight text-indigo-950">
-              {Math.round((metrics.totalEstimate / 60) * 10) / 10}
-            </span>
-            <span className="text-xs font-bold text-indigo-500">hours</span>
-          </div>
-          <p className="mt-3 text-[11px] font-semibold text-slate-400">
-            {metrics.totalEstimate} mins planned for today
-          </p>
-        </div>
-
-        {/* Metric 3 */}
-        <div className="group relative overflow-hidden rounded-[26px] border border-white/80 bg-white/90 p-5 shadow-lg shadow-slate-200/50 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:border-purple-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase">
-              Focused Time
-            </span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100/90 text-purple-800 text-sm shadow-inner group-hover:scale-110 transition-transform">
-              🔥
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline gap-1.5">
-            <span className="bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-3xl sm:text-4xl font-black tracking-tight text-transparent">
-              {Math.round((metrics.totalSpent / 60) * 10) / 10}
-            </span>
-            <span className="text-xs font-bold text-purple-500">hours</span>
-          </div>
-          <p className="mt-3 text-[11px] font-semibold text-slate-400">
-            {metrics.totalSpent} mins actively tracked
-          </p>
-        </div>
-
-        {/* Metric 4 */}
-        <div className="group relative flex flex-col justify-between overflow-hidden rounded-[26px] border border-purple-200/80 bg-gradient-to-br from-purple-50/90 via-white to-indigo-50/80 p-5 shadow-lg shadow-purple-500/5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:border-purple-300">
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-black tracking-widest text-purple-700 uppercase">
-                Inbox Backlog
-              </span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-200/70 text-purple-800 text-sm shadow-inner group-hover:scale-110 transition-transform">
-                📥
-              </div>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-3xl sm:text-4xl font-black tracking-tight text-purple-950">
-                {unplannedTasks.length}
-              </span>
-              <span className="text-xs font-bold text-purple-600">tasks waiting</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowInboxDrawer(true)}
-            className="mt-3 inline-flex items-center justify-between rounded-xl bg-purple-100/90 px-3 py-1.5 text-xs font-bold text-purple-800 transition hover:bg-purple-200 active:scale-95"
-          >
-            <span>Triage List</span>
-            <span className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-mono shadow-xs">[I]</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ⏱️ 2. ACTIVE LIVE FOCUS BANNER */}
-      {activeTask ? (
-        <div className="relative overflow-hidden rounded-[30px] border border-purple-500/30 bg-gradient-to-r from-slate-950 via-purple-950 to-slate-900 p-6 sm:p-7 text-white shadow-2xl shadow-purple-950/30">
-          <div className="pointer-events-none absolute -right-10 -top-10 h-52 w-52 rounded-full bg-gradient-to-br from-purple-500/30 to-pink-500/20 blur-2xl animate-pulse-glow" />
-
-          <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-full border border-purple-400/30 bg-purple-500/20 px-3.5 py-1 text-[11px] font-black tracking-wider text-purple-200 uppercase shadow-inner">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-                  </span>
-                  Live Focus Sprint
-                </span>
-                {activeTask.project && (
-                  <span className="rounded-full bg-white/10 px-3 py-0.5 text-[11px] font-semibold text-slate-300 backdrop-blur-md">
-                    {activeTask.project.name}
-                  </span>
-                )}
-              </div>
-
-              <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white drop-shadow-sm">
-                {activeTask.title}
-              </h2>
-
-              <p className="text-xs text-purple-200/80 font-mono">
-                Planned: {activeTask.estimatedMinutes || 0}m • Current Workload:{" "}
-                <span className="font-bold text-emerald-300">
-                  {(activeTask.actualMinutes || 0) + Math.round(timerSeconds / 60)}m
-                </span>
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4 shrink-0">
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-6 py-2.5 text-center backdrop-blur-md shadow-inner">
-                <div className="font-mono text-3xl sm:text-4xl font-black tracking-tight text-white">
-                  {formatClock(timerSeconds)}
-                </div>
-                <span className="text-[10px] font-black tracking-widest uppercase text-purple-300">
-                  {isTimerRunning ? "Clock Running" : "Sprint Paused"}
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => setIsTimerRunning(!isTimerRunning)}
-                  className={`min-h-[42px] rounded-xl px-5 py-2 text-xs font-black tracking-wider text-white shadow-lg transition-all active:scale-95 cursor-pointer ${
-                    isTimerRunning
-                      ? "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600"
-                      : "bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600"
-                  }`}
-                >
-                  {isTimerRunning ? "⏸ PAUSE" : "▶ RESUME"}
-                </Button>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleStopAndSave}
-                  className="min-h-[38px] rounded-xl border-white/20 bg-white/10 text-xs font-bold text-white hover:bg-white/20 active:scale-95 cursor-pointer"
-                >
-                  ■ Stop & Save
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center justify-between rounded-[26px] border border-purple-200/70 bg-gradient-to-r from-purple-50/80 via-white to-indigo-50/80 px-6 py-4 text-xs font-medium text-purple-900 shadow-sm backdrop-blur-md">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-base shadow-inner">
-              ✨
-            </div>
-            <div>
-              <span className="font-bold text-slate-800 text-sm">Ready to enter flow state?</span>
-              <p className="text-slate-500 text-xs">Click the play button on any task below to launch your focus session.</p>
-            </div>
-          </div>
-          <span className="hidden sm:inline-flex items-center gap-1.5 font-mono text-[11px] rounded-xl border border-purple-200 bg-white px-3 py-1.5 text-purple-700 shadow-xs">
-            [Space] = Pause/Resume
-          </span>
-        </div>
-      )}
-
-      {/* 🌱 3. HABIT ROUTINES */}
-      {habits.length > 0 && (
-        <div className="rounded-[28px] border border-white/80 bg-white/80 p-5 shadow-xl shadow-slate-200/40 backdrop-blur-xl">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3 px-1">
+        <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-base">🌱</span>
-              <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase">
-                Daily Routines & Streaks
+              <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-purple-300 font-mono">
+                Today Scheduled Matrix
               </span>
             </div>
-            <span className="rounded-full bg-emerald-100/80 px-3 py-0.5 text-xs font-black font-mono text-emerald-800 shadow-xs">
-              {completedHabitIds.length} / {habits.length} ACCOMPLISHED
-            </span>
+            <h1 className="text-xl md:text-2xl font-black tracking-tight text-white">
+              Deliverables Cockpit & Live SLA Radar
+            </h1>
+            <p className="text-xs text-slate-300">
+              Real-time synchronization across accepted milestones and priority time limits.
+            </p>
           </div>
 
-          <div className="flex flex-wrap gap-2.5">
-            {habits.map((habit) => {
-              const isDone = completedHabitIds.includes(habit.id);
-              return (
-                <div
-                  key={habit.id}
-                  className={`inline-flex items-center gap-2.5 rounded-2xl border px-4 py-2 text-xs font-bold transition-all duration-200 ${
-                    isDone
-                      ? "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-950 shadow-sm"
-                      : "border-slate-200/80 bg-slate-50/90 text-slate-700 hover:bg-white"
-                  }`}
-                >
-                  <span>{habit.name}</span>
-                  <span
-                    className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-black ${
-                      isDone ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-500"
-                    }`}
-                  >
-                    {isDone ? "✓" : "○"}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="flex items-center gap-2.5">
+            <Link href="/tasks">
+              <Button className="h-10 rounded-xl bg-purple-600 hover:bg-purple-700 text-xs font-black text-white px-4 shadow-lg shadow-purple-500/25 transition cursor-pointer">
+                + New Task
+              </Button>
+            </Link>
           </div>
         </div>
-      )}
 
-      {/* 🏷️ 4. PRIORITY PILLS & CREATE TASK ACTION */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-1.5 rounded-2xl border border-white/80 bg-slate-200/50 p-1.5 backdrop-blur-md shadow-inner">
-          {[
-            { key: "ALL", label: "All Priority" },
-            { key: "URGENT", label: "🔥 Urgent" },
-            { key: "HIGH", label: "⚡ High" },
-            { key: "MEDIUM", label: "🔹 Medium" },
-            { key: "LOW", label: "☕ Low" },
-          ].map((p) => {
-            const active = priorityFilter === p.key;
-            return (
-              <button
-                key={p.key}
-                onClick={() => setPriorityFilter(p.key)}
-                className={`rounded-xl px-4 py-1.5 text-xs font-black transition-all active:scale-95 ${
-                  active
-                    ? "bg-white text-slate-900 shadow-md shadow-slate-300/50"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowInboxDrawer(true)}
-            className="rounded-2xl border-purple-200 bg-purple-50/80 text-xs font-bold text-purple-800 hover:bg-purple-100 shadow-xs"
-          >
-            📥 Backlog Drawer ({unplannedTasks.length})
-          </Button>
-
-          <Link href="/tasks">
-            <Button
-              size="sm"
-              className="rounded-2xl bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-xs font-black text-white shadow-lg shadow-slate-900/20 hover:shadow-indigo-900/30 transition active:scale-95"
+        {/* Priority Filter Bar */}
+        <div className="mt-5 flex gap-2 border-t border-white/10 pt-3 overflow-x-auto pb-1">
+          {["ALL", "P1", "P2", "P3", "P4", "P5"].map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setFilterPriority(p)}
+              className={`rounded-xl px-3.5 py-1.5 text-xs font-black transition cursor-pointer ${
+                filterPriority === p
+                  ? "bg-white text-slate-950 shadow-md"
+                  : "text-slate-300 hover:bg-white/10 hover:text-white"
+              }`}
             >
-              + Create Task
-            </Button>
-          </Link>
+              {p === "ALL" ? "All Priorities" : `${p} Stream`}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* 📋 5. FULL-WIDTH SCHEDULED DELIVERABLES CONTAINER */}
-      <div className="overflow-hidden rounded-[30px] border border-white/80 bg-white/90 shadow-2xl shadow-slate-200/50 backdrop-blur-xl">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-slate-50/90 to-white/70 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-black tracking-wider text-slate-500 uppercase">
-              Scheduled Deliverables
+      {/* 📅 2. SCHEDULED DELIVERABLES LIST (PLAY BUTTON & 0m/24h TIMER REPLACED) */}
+      <div className="rounded-[30px] border border-slate-200/90 bg-white/95 p-5 md:p-6 shadow-xl backdrop-blur-xl space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+              SCHEDULED DELIVERABLES
             </span>
-            <span className="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-extrabold font-mono text-purple-700 shadow-inner">
+            <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-black font-mono text-purple-700">
               {filteredTasks.length}
             </span>
           </div>
 
-          <div className="flex items-center gap-6 text-[11px] font-black tracking-widest text-slate-400 font-mono uppercase">
-            <span>Spent / Estimate</span>
-            <span>Priority</span>
+          <div className="hidden sm:flex items-center gap-12 text-[10px] font-black uppercase tracking-wider text-slate-400">
+            <span>LIVE SLA COUNTDOWN</span>
+            <span className="w-12 text-center">PRIORITY</span>
           </div>
         </div>
 
-        <div className="divide-y divide-slate-100">
+        <div className="space-y-2.5">
           {filteredTasks.length === 0 ? (
-            <div className="p-16 text-center text-xs text-slate-400">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-2xl shadow-inner">
-                ☕
-              </div>
-              <p className="font-bold text-slate-700 text-sm">All scheduled tasks completed!</p>
-              <p className="mt-1 text-slate-400">
-                Press <kbd className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-slate-600 shadow-xs">[I]</kbd> to pull new tasks from your inbox.
-              </p>
+            <div className="py-16 text-center text-xs font-bold text-slate-400">
+              No scheduled deliverables for today matching this stream.
             </div>
           ) : (
-            filteredTasks.map((task) => (
-              <div
-                key={task.id}
-                className="group relative transition-all duration-200 hover:bg-slate-50/90 hover:pl-1"
-              >
-                <TodayTaskItem task={task} currentUserId={currentUserId} />
-              </div>
-            ))
+            filteredTasks.map((task) => {
+              const theme = getPriorityStyle(task.priority);
+              const timer = getTaskSlaTimer(task);
+              const isAccepted = task.status === "IN_PROGRESS" || Boolean(task.startAt);
+
+              return (
+                <Link
+                  key={task.id}
+                  href={`/tasks/${task.id}`}
+                  className={`group relative block overflow-hidden rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${theme.border}`}
+                >
+                  {/* Glowing Ambient Gradient on Hover */}
+                  <div
+                    className={`absolute inset-0 bg-gradient-to-r ${theme.glow} opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none`}
+                  />
+
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    {/* LEFT: Replaced Play Button with Holographic Kinetic Pulse Beacon */}
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100/90 border border-slate-200/80 shadow-inner group-hover:border-purple-400 transition">
+                        <div
+                          className={`h-3 w-3 rounded-full ${theme.core} shadow-md transition-transform group-hover:scale-125 ${
+                            isAccepted && task.status !== "COMPLETED" ? "animate-pulse" : ""
+                          }`}
+                        />
+                        {isAccepted && task.status !== "COMPLETED" && (
+                          <span className="absolute inset-0 rounded-xl border border-purple-400/50 animate-ping" />
+                        )}
+                      </div>
+
+                      {/* Task Info */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-black text-slate-900 group-hover:text-purple-700 transition truncate">
+                            {task.title}
+                          </h4>
+                          {task.project && (
+                            <span className="hidden md:inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 truncate max-w-[120px]">
+                              📁 {task.project.name}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-[11px] font-medium text-slate-400 line-clamp-1 truncate">
+                          {cleanDescription(task.description)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* RIGHT: Replaced "0m / 24h" with Live SLA Countdown Clock & Priority Pill */}
+                    <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                      {/* Live Ticking Countdown Pill */}
+                      <div
+                        className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[10px] font-black border transition ${timer.statusClass}`}
+                      >
+                        <span className="text-xs">⏱️</span>
+                        <span className="font-mono tracking-tight">{timer.label}</span>
+                      </div>
+
+                      {/* Priority Capsule */}
+                      <div
+                        className={`flex h-8 items-center justify-center rounded-xl px-3 text-[10px] font-black uppercase tracking-wider shadow-xs transition-transform group-hover:scale-105 ${theme.pill}`}
+                      >
+                        {task.priority}
+                      </div>
+
+                      {/* Hover Arrow Indicator */}
+                      <span className="hidden sm:inline-block text-slate-300 group-hover:text-purple-600 group-hover:translate-x-1 transition text-sm font-bold">
+                        →
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })
           )}
         </div>
       </div>
-
-      {/* 📥 6. SLIDE-OVER INBOX TRIAGE DRAWER */}
-      {showInboxDrawer && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-xs transition-opacity">
-          <div className="w-full max-w-md bg-white/95 p-6 shadow-2xl space-y-4 overflow-y-auto border-l border-slate-100 backdrop-blur-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-black text-slate-900 tracking-tight">
-                  📥 Unplanned Backlog
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Select and schedule tasks directly into today&apos;s sprint.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowInboxDrawer(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition active:scale-95"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {unplannedTasks.length === 0 ? (
-                <div className="py-12 text-center text-xs text-slate-400">
-                  Inbox backlog is completely clear!
-                </div>
-              ) : (
-                unplannedTasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="group flex items-center justify-between rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/50 p-4 shadow-xs transition-all duration-200 hover:border-purple-300 hover:shadow-md hover:-translate-y-0.5"
-                  >
-                    <div className="min-w-0 flex-1 pr-3">
-                      <p className="truncate text-xs font-black text-slate-900">{t.title}</p>
-                      {t.project && (
-                        <span className="mt-1 inline-block rounded-md bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-700">
-                          {t.project.name}
-                        </span>
-                      )}
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleTriageToToday(t.id)}
-                      className="rounded-xl bg-slate-900 text-white text-xs font-bold px-3 py-1.5 h-auto transition active:scale-95 hover:bg-purple-700 cursor-pointer shadow-xs"
-                    >
-                      + Today
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

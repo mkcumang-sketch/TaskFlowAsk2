@@ -14,6 +14,11 @@ export default async function TodayPage() {
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
+  const userRoleString: string =
+    typeof user.role === "string"
+      ? user.role
+      : (user.role as any)?.name || "EMPLOYEE";
+
   // Fetch today's actionable tasks, habits, and unplanned backlog
   const [tasks, habits, habitLogs, unplannedTasks] = await Promise.all([
     prisma.task.findMany({
@@ -44,7 +49,6 @@ export default async function TodayPage() {
       where: { userId: user.id, date: todayStr },
     }),
 
-    // Inbox backlog: unassigned or no due date for instant triage
     prisma.task.findMany({
       where: {
         organizationId,
@@ -71,12 +75,12 @@ export default async function TodayPage() {
     <AppShell
       title="Today"
       subtitle="Work focus, active time tracking, and scheduled deliverables."
-      userRole={user.role}
+      userRole={userRoleString}
     >
       <TodayCockpit
-        initialTasks={tasks}
-        unplannedTasks={unplannedTasks}
-        habits={habits}
+        initialTasks={JSON.parse(JSON.stringify(tasks))}
+        unplannedTasks={JSON.parse(JSON.stringify(unplannedTasks))}
+        habits={JSON.parse(JSON.stringify(habits))}
         completedHabitIds={Array.from(completedHabitMap)}
         currentUserId={user.id}
         metrics={{
