@@ -55,7 +55,7 @@ export async function POST(
     const now = new Date();
     const updateData: Record<string, any> = {};
 
-    // 1. ACCEPT / START ACTION (Max 3 Tasks & 1h warning)
+    // 1. ACCEPT / START ACTION (Max 3 Active Tasks Limit)
     if (
       rawAction === "ACCEPT" ||
       rawAction === "ACCEPT_TASK" ||
@@ -80,8 +80,9 @@ export async function POST(
       }
 
       nextState = "IN_PROGRESS";
-      if (!task.startAt) updateData.startAt = now;
-      if (!(task as any).assignedAt) updateData.assignedAt = now;
+      if (!task.startAt) {
+        updateData.startAt = now;
+      }
     }
     // 2. HOLD / CARRY FORWARD (Reason Mandatory)
     else if (
@@ -131,6 +132,7 @@ export async function POST(
 
     updateData.status = nextState;
 
+    // Prisma update call (sirf valid schema fields ke sath)
     const updated = await prisma.task.update({
       where: { id: taskId },
       data: updateData as any,
