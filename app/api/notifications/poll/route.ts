@@ -8,30 +8,33 @@ export async function GET() {
   try {
     const session = await getSession();
     const currentUserId = (session as any)?.userId || (session as any)?.id;
+    const organizationId = session?.organizationId ?? undefined;
 
-    if (!session || !currentUserId) {
+    if (!session || !currentUserId || !organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const now = new Date();
-    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
 
-    // 1. Unread chat messages from the last 15 seconds
+    // 1. Recent chat messages where current user is a channel member
     const recentMessages = await prisma.message.findMany({
       where: {
-        recipientId: currentUserId,
         createdAt: { gte: new Date(now.getTime() - 15 * 1000) },
+        senderId: { not: currentUserId },
+        channel: {
+          members: { some: { userId: currentUserId } },
+        },
       },
       include: {
         sender: { select: { name: true, email: true } },
       },
       take: 3,
-    });
+    }).catch(() => []);
 
-    // 2. Newly assigned tasks waiting for acceptance (< 1 hour SLA)
+    // 2. Newly assigned tasks waiting for acceptance
     const pendingAssignedTasks = await prisma.task.findMany({
       where: {
-        organizationId: session.organizationId,
+        organizationId,
         status: { in: ["ASSIGNED", "DRAFT"] },
         assignees: { some: { userId: currentUserId } },
       },
@@ -47,7 +50,7 @@ export async function GET() {
     // 3. Overdue SLA Tasks
     const overdueTasks = await prisma.task.findMany({
       where: {
-        organizationId: session.organizationId,
+        organizationId,
         status: "IN_PROGRESS",
         assignees: { some: { userId: currentUserId } },
         dueAt: { lte: now },
@@ -61,10 +64,10 @@ export async function GET() {
       take: 5,
     });
 
-    // 4. Running Active Tasks (for 10-minute reminder check)
+    // 4. Running Active Tasks (for 10-min reminder check)
     const inProgressTasks = await prisma.task.findMany({
       where: {
-        organizationId: session.organizationId,
+        organizationId,
         status: "IN_PROGRESS",
         assignees: { some: { userId: currentUserId } },
         dueAt: { gt: now },
