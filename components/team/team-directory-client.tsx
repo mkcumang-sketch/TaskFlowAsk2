@@ -19,13 +19,19 @@ interface Member {
   department?: { id: string; name: string } | null;
 }
 
+interface TeamDirectoryClientProps {
+  initialMembers?: Member[];
+  departments?: Department[];
+  currentUserId?: string;
+  currentUserRole?: string | null;
+}
+
 export function TeamDirectoryClient({
   initialMembers = [],
   departments = [],
-}: {
-  initialMembers: Member[];
-  departments: Department[];
-}) {
+  currentUserId,
+  currentUserRole = "EMPLOYEE",
+}: TeamDirectoryClientProps) {
   const router = useRouter();
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
@@ -123,7 +129,9 @@ export function TeamDirectoryClient({
               {member.name ? member.name.charAt(0).toUpperCase() : "U"}
             </div>
             <div className="min-w-0 flex-1">
-              <h4 className="text-xs font-black text-slate-900 truncate">{member.name || member.email}</h4>
+              <h4 className="text-xs font-black text-slate-900 truncate">
+                {member.name || member.email}
+              </h4>
               <p className="text-[11px] text-slate-400 truncate">{member.email}</p>
               <div className="mt-1 flex items-center gap-1.5">
                 <span className="rounded-md bg-purple-50 px-1.5 py-0.5 text-[9px] font-black uppercase text-purple-700 font-mono">
@@ -140,7 +148,7 @@ export function TeamDirectoryClient({
         ))}
       </div>
 
-      {/* 🚀 Modal: Add Employee with Department Dropdown */}
+      {/* Modal: Add Employee with Department Dropdown */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-[30px] border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
@@ -154,7 +162,7 @@ export function TeamDirectoryClient({
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-700 font-bold"
+                className="text-slate-400 hover:text-slate-700 font-bold cursor-pointer"
               >
                 ✕
               </button>
@@ -204,7 +212,6 @@ export function TeamDirectoryClient({
                 </select>
               </div>
 
-              {/* Custom Department Name field if "NEW" is selected */}
               {selectedDeptId === "NEW" && (
                 <div>
                   <label className="text-[11px] font-black uppercase text-slate-700">New Department Name *</label>
