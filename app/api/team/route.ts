@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, email, departmentName, roleName = "EMPLOYEE" } = body;
+    const { name, email, departmentId, departmentName, roleName = "EMPLOYEE" } = body;
 
     if (!name?.trim() || !email?.trim()) {
       return NextResponse.json({ error: "Name and Official Google Email are required" }, { status: 400 });
@@ -33,33 +33,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "An employee with this Google email is already authorized" }, { status: 400 });
     }
 
-    let departmentId = null;
-    if (departmentName?.trim()) {
-      let dept = await prisma.department.findFirst({
+    // 1. Resolve or Create Department
+    let targetDeptId: string | null = null;
+    let targetDeptRecord: any = null;
+
+    if (departmentId) {
+      targetDeptRecord = await prisma.department.findFirst({
+        where: {
+          id: departmentId,
+          organizationId: session.organizationId,
+        },
+      });
+      if (targetDeptRecord) targetDeptId = targetDeptRecord.id;
+    }
+
+    if (!targetDeptId && departmentName?.trim()) {
+      targetDeptRecord = await prisma.department.findFirst({
         where: {
           organizationId: session.organizationId,
           name: departmentName.trim(),
         },
       });
 
-      if (!dept) {
-        dept = await prisma.department.create({
+      if (!targetDeptRecord) {
+        targetDeptRecord = await prisma.department.create({
           data: {
             organizationId: session.organizationId,
             name: departmentName.trim(),
           },
         });
       }
-      departmentId = dept.id;
+      targetDeptId = targetDeptRecord.id;
     }
 
-    let generatedCode = generateMemberCode(name, departmentName);
+    // 2. Member code generation
+    let generatedCode = generateMemberCode(name, targetDeptRecord?.name);
     let codeConflict = await prisma.user.findFirst({ where: { memberCode: generatedCode } });
     while (codeConflict) {
-      generatedCode = generateMemberCode(name, departmentName);
+      generatedCode = generateMemberCode(name, targetDeptRecord?.name);
       codeConflict = await prisma.user.findFirst({ where: { memberCode: generatedCode } });
     }
 
+    // 3. Resolve Role
     let roleRecord = await prisma.role.findFirst({
       where: { name: roleName.toUpperCase() },
     });
@@ -70,7 +85,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Stores passwordHash as null - access is authenticated exclusively via Google OAuth
+    // 4. Create the new Employee
     const newMember = await prisma.user.create({
       data: {
         organizationId: session.organizationId,
@@ -78,7 +93,7 @@ export async function POST(request: Request) {
         email: normalizedEmail,
         memberCode: generatedCode,
         passwordHash: null,
-        departmentId,
+        departmentId: targetDeptId,
         roleId: roleRecord.id,
         presenceStatus: "OFFLINE",
       },
@@ -87,6 +102,49 @@ export async function POST(request: Request) {
         department: { select: { id: true, name: true } },
       },
     });
+
+    // 5. Auto-Create Group Chat for Department & Auto-Enroll User
+    if (targetDeptId && targetDeptRecord) {
+      try {
+        let groupConversation = await prisma.conversation.findFirst({
+          where: {
+            organizationId: session.organizationId,
+            departmentId: targetDeptId,
+            type: "DEPARTMENT",
+          },
+        });
+
+        if (!groupConversation) {
+          groupConversation = await prisma.conversation.create({
+            data: {
+              organizationId: session.organizationId,
+              departmentId: targetDeptId,
+              type: "DEPARTMENT",
+              name: `${targetDeptRecord.name} Team`,
+              description: `Official channel for ${targetDeptRecord.name} department.`,
+            },
+          });
+        }
+
+        // Add member to group conversation
+        await prisma.conversationParticipant.upsert({
+          where: {
+            conversationId_userId: {
+              conversationId: groupConversation.id,
+              userId: newMember.id,
+            },
+          },
+          create: {
+            conversationId: groupConversation.id,
+            userId: newMember.id,
+            role: "MEMBER",
+          },
+          update: {},
+        });
+      } catch (chatErr) {
+        console.warn("Auto-join department group skipped (non-fatal):", chatErr);
+      }
+    }
 
     return NextResponse.json(newMember, { status: 201 });
   } catch (error) {
