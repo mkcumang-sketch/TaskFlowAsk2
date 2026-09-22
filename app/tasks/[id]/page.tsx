@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { TaskTimer } from "@/components/task-timer";
+import { QuantumSlaReactor } from "@/components/tasks/quantum-sla-reactor";
 import { TaskActionButtons } from "@/components/task-action-button";
 import { TaskSubtasksSection, TaskCommentsSection } from "@/components/task-detail-actions";
 import { requireUser } from "@/lib/auth";
@@ -85,7 +85,6 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
               {proofComments.length > 0 ? (
                 <div className="space-y-2">
                   {proofComments.map((proof) => {
-                    // Extract URL if present
                     const urlMatch = proof.content.match(/(https?:\/\/[^\s]+)/g);
                     const extractedUrl = urlMatch ? urlMatch[0] : null;
 
@@ -168,8 +167,13 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
 
         {/* Sidebar Controls */}
         <aside className="space-y-6">
-          {/* Phase 4 Live Time Tracker Widget */}
-          <TaskTimer taskId={task.id} initialActualMinutes={task.actualMinutes || 0} />
+          {/* ✨ Replaced Static TaskTimer with Quantum SLA Reactor Card */}
+          <QuantumSlaReactor
+            priority={task.priority}
+            status={task.status}
+            startAt={task.startAt}
+            dueAt={task.dueAt}
+          />
 
           {/* Status & Actions Box */}
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
