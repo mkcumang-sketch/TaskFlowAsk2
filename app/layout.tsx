@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
+import { NotificationBeacon } from "@/components/notification-beacon";
 
-const inter = Inter({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,8 +23,23 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-scroll-behavior="smooth" className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-sans", inter.variable)}>
-      <body className="min-h-full bg-slate-100 text-slate-900">{children}</body>
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      className={cn(
+        "h-full",
+        "antialiased",
+        geistSans.variable,
+        geistMono.variable,
+        "font-sans",
+        inter.variable
+      )}
+    >
+      <body className="min-h-full bg-slate-100 text-slate-900">
+        {/* 🔔 Universal Real-Time Popups (Chats, New Assigned Tasks, SLA Overdue & 10min Reminders) */}
+        <NotificationBeacon />
+        {children}
+      </body>
     </html>
   );
 }
