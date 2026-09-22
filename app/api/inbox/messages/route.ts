@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
+// 📩 GET: Messages load karna (Channels & 1:1 Direct Messages)
 export async function GET(request: Request) {
   try {
     const session = await getSession();
-    if (!session?.organizationId) {
+    const currentUserId = session?.id || (session as any)?.userId;
+
+    if (!session?.organizationId || !currentUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -15,7 +20,7 @@ export async function GET(request: Request) {
 
     // 1. Direct 1-on-1 Messages
     if (recipientId) {
-      if (recipientId === session.id) {
+      if (recipientId === currentUserId) {
         return NextResponse.json({ error: "Cannot message yourself" }, { status: 400 });
       }
 
@@ -24,7 +29,7 @@ export async function GET(request: Request) {
           organizationId: session.organizationId,
           type: "DIRECT",
           AND: [
-            { participants: { some: { userId: session.id } } },
+            { participants: { some: { userId: currentUserId } } },
             { participants: { some: { userId: recipientId } } },
           ],
         },
@@ -36,10 +41,10 @@ export async function GET(request: Request) {
           data: {
             organizationId: session.organizationId,
             type: "DIRECT",
-            creatorId: session.id,
+            creatorId: currentUserId,
             participants: {
               create: [
-                { userId: session.id, role: "MEMBER" },
+                { userId: currentUserId, role: "MEMBER" },
                 { userId: recipientId, role: "MEMBER" },
               ],
             },
@@ -80,24 +85,70 @@ export async function GET(request: Request) {
   }
 }
 
+// 🚀 POST: Message send karna (Direct recipient ya Channel ID dono support karta hai)
 export async function POST(request: Request) {
   try {
     const session = await getSession();
-    if (!session?.organizationId) {
+    const currentUserId = session?.id || (session as any)?.userId;
+
+    if (!session?.organizationId || !currentUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { channelId, content, mediaUrl, mediaName, taskId } = body;
+    const body = await request.json().catch(() => ({}));
+    const { content, mediaUrl, mediaName, taskId, recipientId } = body;
+    let targetChannelId = body.channelId;
 
-    if (!channelId || (!content?.trim() && !mediaUrl)) {
+    if (!content?.trim() && !mediaUrl) {
       return NextResponse.json({ error: "Message content or attachment is required" }, { status: 400 });
     }
 
+    // 🔍 Agar Individual Direct Chat hai (recipientId provided hai aur targetChannelId nahi mili)
+    if (!targetChannelId && recipientId) {
+      if (recipientId === currentUserId) {
+        return NextResponse.json({ error: "Cannot message yourself" }, { status: 400 });
+      }
+
+      let dm = await prisma.conversation.findFirst({
+        where: {
+          organizationId: session.organizationId,
+          type: "DIRECT",
+          AND: [
+            { participants: { some: { userId: currentUserId } } },
+            { participants: { some: { userId: recipientId } } },
+          ],
+        },
+      });
+
+      // Agar direct chat record nahi hai, toh pehle dono users ke beech nayi conversation banao
+      if (!dm) {
+        dm = await prisma.conversation.create({
+          data: {
+            organizationId: session.organizationId,
+            type: "DIRECT",
+            creatorId: currentUserId,
+            participants: {
+              create: [
+                { userId: currentUserId, role: "MEMBER" },
+                { userId: recipientId, role: "MEMBER" },
+              ],
+            },
+          },
+        });
+      }
+
+      targetChannelId = dm.id;
+    }
+
+    if (!targetChannelId) {
+      return NextResponse.json({ error: "Valid channelId or recipientId is required" }, { status: 400 });
+    }
+
+    // Message database mein insert karein
     const message = await prisma.message.create({
       data: {
-        conversationId: channelId,
-        senderId: session.id,
+        conversationId: targetChannelId,
+        senderId: currentUserId,
         content: content?.trim() || "",
         mediaUrl: mediaUrl || null,
         mediaName: mediaName || null,
@@ -108,11 +159,11 @@ export async function POST(request: Request) {
       },
     });
 
-    // Update conversation sorting timestamp
+    // Update conversation sorting timestamp for WhatsApp/Telegram order
     await prisma.conversation.update({
-      where: { id: channelId },
+      where: { id: targetChannelId },
       data: { lastMessageAt: new Date() },
-    });
+    }).catch(() => null);
 
     return NextResponse.json(message, { status: 201 });
   } catch (error) {

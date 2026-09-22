@@ -80,20 +80,40 @@ export function InboxView({
     return (Date.now() - new Date(ts).getTime()) / (1000 * 60) < 10;
   };
 
-  // WhatsApp / Telegram Unified Chat List
+  // ✅ WhatsApp / Telegram Unified Chat List with Strict Deduplication
   const chatItems = useMemo(() => {
     const list: ChatItem[] = [];
 
-    // Groups & Department Rooms
+    // 1. Groups & Department Rooms (Deduplicated by normalized name & departmentId)
     if (activeTab === "ALL" || activeTab === "GROUPS") {
-      initialChannels.forEach((ch) => {
+      const seenGroupKeys = new Set<string>();
+
+      // Sort channels so the one with the latest activity comes first
+      const sortedChannels = [...initialChannels].sort((a, b) => {
+        const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+        const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      sortedChannels.forEach((ch) => {
+        const groupName = (ch.name || (ch.department ? `${ch.department.name} Team` : "Group Chat")).trim();
+        // Unique key using departmentId if available, otherwise normalized name
+        const uniqueKey = ch.departmentId 
+          ? `dept_${ch.departmentId}` 
+          : `name_${groupName.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+
+        if (seenGroupKeys.has(uniqueKey)) {
+          return; // Skip duplicate group entry
+        }
+        seenGroupKeys.add(uniqueKey);
+
         list.push({
           id: `channel_${ch.id}`,
           targetId: ch.id,
-          name: ch.name || (ch.department ? `${ch.department.name} Team` : "Group Chat"),
+          name: groupName,
           isGroup: true,
           subtitle: ch.description || "Official group room",
-          avatarText: (ch.name || "G").charAt(0).toUpperCase(),
+          avatarText: (groupName || "G").charAt(0).toUpperCase(),
           isOnline: true,
           timestamp: ch.lastMessageAt
             ? new Date(ch.lastMessageAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -103,11 +123,16 @@ export function InboxView({
       });
     }
 
-    // Direct Messages (1:1)
+    // 2. Direct Messages (1:1) (Deduplicated by userId)
     if (activeTab === "ALL" || activeTab === "DIRECT") {
+      const seenUserIds = new Set<string>();
+
       directoryUsers
         .filter((u) => u.id !== currentUserId)
         .forEach((u) => {
+          if (seenUserIds.has(u.id)) return;
+          seenUserIds.add(u.id);
+
           const online = checkIsOnline(u);
           const roleLabel =
             typeof u.role === "string"
@@ -241,13 +266,13 @@ export function InboxView({
       style={{ height: "calc(100vh - 150px)", minHeight: "520px" }}
       className="relative flex w-full overflow-hidden rounded-2xl md:rounded-[28px] border border-slate-200/90 bg-white shadow-xl select-none"
     >
-      {/* 🟢 VIEW 1: WhatsApp / Telegram Left Chat List */}
+      {/* 🟢 VIEW 1: Left Chat List */}
       <div
         className={`w-full md:w-88 lg:w-96 flex flex-col border-r border-slate-200/80 bg-white shrink-0 ${
           mobileChatOpen ? "hidden md:flex" : "flex"
         }`}
       >
-        {/* WhatsApp Top Search & Filter Bar */}
+        {/* Top Search & Filter Bar */}
         <div className="p-3 border-b border-slate-100 space-y-2.5 bg-slate-50/50">
           <div className="relative">
             <input
@@ -260,7 +285,7 @@ export function InboxView({
             <span className="absolute left-3 top-2 text-xs text-slate-400">🔍</span>
           </div>
 
-          {/* Quick Filter Pills (All / Groups / Direct) */}
+          {/* Quick Filter Pills */}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -298,7 +323,7 @@ export function InboxView({
           </div>
         </div>
 
-        {/* Clean WhatsApp Style Chat Item List */}
+        {/* Clean Chat Item List */}
         <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 custom-kanban-scroll">
           {chatItems.length === 0 ? (
             <div className="p-12 text-center text-xs font-bold text-slate-400">
@@ -318,7 +343,6 @@ export function InboxView({
                       : "hover:bg-slate-50"
                   }`}
                 >
-                  {/* Circular Avatar with Status Dot */}
                   <div className="relative shrink-0">
                     <div
                       className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-black shadow-xs ${
@@ -334,7 +358,6 @@ export function InboxView({
                     )}
                   </div>
 
-                  {/* Metadata */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
                       <h4 className="text-xs font-black text-slate-900 truncate">
@@ -365,7 +388,7 @@ export function InboxView({
         </div>
       </div>
 
-      {/* 💬 VIEW 2: WhatsApp / Telegram Chat Conversation Screen */}
+      {/* 💬 VIEW 2: Chat Conversation Screen */}
       <div
         className={`flex-1 flex flex-col bg-[#efeae2]/40 relative overflow-hidden ${
           !mobileChatOpen ? "hidden md:flex" : "flex"
@@ -373,10 +396,9 @@ export function InboxView({
       >
         {selectedChat ? (
           <>
-            {/* Header with Mobile Back Arrow (←) */}
+            {/* Header */}
             <div className="h-15 border-b border-slate-200/80 bg-white px-3 sm:px-5 flex items-center justify-between shrink-0 shadow-xs">
               <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                {/* ⬅ Mobile Back Button */}
                 <button
                   type="button"
                   onClick={() => setMobileChatOpen(false)}
@@ -411,7 +433,7 @@ export function InboxView({
               </div>
             </div>
 
-            {/* WhatsApp/Telegram Message Flow */}
+            {/* Message Flow */}
             <div
               ref={chatScrollRef}
               className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-6 space-y-3 custom-kanban-scroll"
@@ -436,7 +458,6 @@ export function InboxView({
                         </span>
                       )}
 
-                      {/* Message Bubble with Tails */}
                       <div
                         className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 text-xs shadow-xs relative ${
                           isMe
