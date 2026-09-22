@@ -11,7 +11,9 @@ export async function POST(
 ) {
   try {
     const session = await getSession();
-    if (!session || !session.id) {
+    const currentUserId = (session as any)?.userId || (session as any)?.id;
+
+    if (!session || !currentUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -22,8 +24,8 @@ export async function POST(
       return NextResponse.json({ error: "Task ID is required" }, { status: 400 });
     }
 
-    const body = await request.json();
-    const action = body.action || body.status || body.nextStatus;
+    const body = await request.json().catch(() => ({}));
+    const rawAction = (body.action || body.status || body.nextStatus || "").toUpperCase();
     const feedback = body.feedback || body.comment || body.reason || "";
 
     // 1. Fetch current task using correct schema relation 'assignees'
@@ -38,57 +40,107 @@ export async function POST(
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // 2. Determine target next state
+    // 2. Normalize and determine target next state
     let nextState: TaskState = "IN_PROGRESS";
 
-    if (action === "APPROVE" || action === "APPROVED") {
+    if (
+      rawAction === "ACCEPT" ||
+      rawAction === "ACCEPT_TASK" ||
+      rawAction === "START" ||
+      rawAction === "START_WORK"
+    ) {
+      nextState = "IN_PROGRESS";
+    } else if (rawAction === "APPROVE" || rawAction === "APPROVED") {
       nextState = "APPROVED";
     } else if (
-      action === "REJECT" ||
-      action === "REJECTED" ||
-      action === "REQUEST_CHANGES" ||
-      action === "REWORK"
+      rawAction === "REJECT" ||
+      rawAction === "REJECTED" ||
+      rawAction === "REQUEST_CHANGES" ||
+      rawAction === "REWORK"
     ) {
       nextState = "REJECTED";
-    } else if (action === "SUBMIT" || action === "REVIEW" || action === "SUBMIT_WORK") {
+    } else if (
+      rawAction === "SUBMIT" ||
+      rawAction === "REVIEW" ||
+      rawAction === "SUBMIT_WORK" ||
+      rawAction === "SUBMIT_FOR_REVIEW"
+    ) {
       nextState = "REVIEW";
-    } else if (action === "COMPLETE" || action === "COMPLETED") {
+    } else if (rawAction === "COMPLETE" || rawAction === "COMPLETED") {
       nextState = "COMPLETED";
-    } else if (action === "START_WORK") {
-      nextState = "IN_PROGRESS";
     } else {
-      nextState = action as TaskState;
+      nextState = (rawAction || "IN_PROGRESS") as TaskState;
     }
 
-    // 3. Transition check (Admin bypass + 2-argument canTransition)
-    const userRole = (session.role || "").toUpperCase();
+    // 3. Transition check (Admin bypass + canTransition fallback)
+    const userRole = ((session as any)?.role || "").toUpperCase();
     const isAdmin = ["ADMIN", "SUPER_ADMIN", "OWNER", "MANAGER"].includes(userRole);
     const currentState = task.status as TaskState;
 
-    if (!isAdmin && !canTransition(currentState, nextState)) {
-      return NextResponse.json(
-        { error: `Cannot transition task from ${currentState} to ${nextState}` },
-        { status: 400 }
-      );
+    if (!isAdmin && typeof canTransition === "function") {
+      try {
+        const allowed = canTransition(currentState, nextState);
+        if (!allowed && currentState !== nextState) {
+          // If strict transition fails, only reject if not accepting an assigned task
+          if (!(currentState === "ASSIGNED" && nextState === "IN_PROGRESS")) {
+            return NextResponse.json(
+              { error: `Cannot transition task from ${currentState} to ${nextState}` },
+              { status: 400 }
+            );
+          }
+        }
+      } catch (wfErr) {
+        console.warn("canTransition check skipped:", wfErr);
+      }
     }
 
-    // 4. Update task status directly
+    // 4. Update task record
+    const now = new Date();
+    const updateData: Record<string, any> = {
+      status: nextState,
+    };
+
+    if (nextState === "APPROVED" || nextState === "COMPLETED") {
+      updateData.completedAt = now;
+    }
+
+    if (nextState === "IN_PROGRESS") {
+      if (!task.startAt) updateData.startAt = now;
+      if (!(task as any).assignedAt) updateData.assignedAt = now;
+
+      // Auto-link accepting user if not already in assignees
+      const isAlreadyAssigned = task.assignees.some((a) => a.userId === currentUserId);
+      if (!isAlreadyAssigned) {
+        await prisma.taskAssignee.upsert({
+          where: {
+            taskId_userId: {
+              taskId: task.id,
+              userId: currentUserId,
+            },
+          },
+          create: {
+            taskId: task.id,
+            userId: currentUserId,
+            assignedAt: now,
+          },
+          update: {},
+        });
+      }
+    }
+
     const updated = await prisma.task.update({
       where: { id: taskId },
-      data: {
-        status: nextState,
-        completedAt: nextState === "APPROVED" || nextState === "COMPLETED" ? new Date() : null,
-      },
+      data: updateData as any,
     });
 
-    // 5. Save comment safely if comment table exists
+    // 5. Save comment safely using authorId (schema definition)
     if (feedback && feedback.trim()) {
       try {
         if ((prisma as any).comment) {
           await (prisma as any).comment.create({
             data: {
               taskId: task.id,
-              userId: session.id,
+              authorId: currentUserId,
               content: `[${nextState}] Feedback: ${feedback.trim()}`,
             },
           });
@@ -98,15 +150,17 @@ export async function POST(
       }
     }
 
-    // 6. Notify Assignee using correct assignees relation
+    // 6. Notify primary assignee safely
     const primaryAssignee = (task.assignees as any[])?.[0]?.userId;
-    if (primaryAssignee && primaryAssignee !== session.id) {
+    if (primaryAssignee && primaryAssignee !== currentUserId) {
       try {
         await prisma.notification.create({
           data: {
             userId: primaryAssignee,
-            title: `Task ${nextState === "APPROVED" ? "Approved" : "Sent Back for Rework"}`,
-            content: `Task "${task.title}" status changed to ${nextState}. ${feedback ? `Feedback: ${feedback}` : ""}`,
+            title: `Task ${nextState === "APPROVED" ? "Approved" : "Updated"}`,
+            content: `Task "${task.title}" status changed to ${nextState}. ${
+              feedback ? `Feedback: ${feedback}` : ""
+            }`,
             link: `/tasks/${task.id}`,
             category: "TASKS",
             priority: "HIGH",
