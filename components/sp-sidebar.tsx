@@ -118,8 +118,7 @@ export function SPSidebar({
     } catch {
       // ignore
     } finally {
-      router.push("/login");
-      router.refresh();
+      window.location.href = "/login";
     }
   };
 
@@ -303,7 +302,7 @@ export function SPSidebar({
             )}
           </div>
 
-          {/* Row 2: Total Tasks & Sign Out Button */}
+          {/* Row 2: Total Tasks & Bottom Log Out Button */}
           {(!collapsed || isMobile) && (
             <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
               <div className="flex items-center gap-1.5">

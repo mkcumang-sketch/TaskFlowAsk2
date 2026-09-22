@@ -15,11 +15,6 @@ interface AppShellProps {
 export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
-  };
-
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-slate-50/50">
       {/* 🚀 Top Global Utility & Quick Capture Bar */}
@@ -45,16 +40,9 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
             <QuickCapture />
           </div>
 
-          {/* User Actions */}
+          {/* User Actions - Clean Notification Bell Only */}
           <div className="flex items-center gap-2.5 shrink-0">
             <NotificationBell />
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="hidden sm:inline-flex min-h-[38px] items-center rounded-xl border border-slate-200/90 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition shadow-xs"
-            >
-              Sign out
-            </button>
           </div>
         </div>
       </header>
@@ -79,7 +67,7 @@ export function AppShell({ title, subtitle, userRole = "EMPLOYEE", children }: A
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
-                  className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 cursor-pointer"
                 >
                   ✕
                 </button>
