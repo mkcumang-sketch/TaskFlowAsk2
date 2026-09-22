@@ -33,7 +33,11 @@ export function TeamDirectoryClient({
   currentUserRole = "EMPLOYEE",
 }: TeamDirectoryClientProps) {
   const router = useRouter();
+  const [members, setMembers] = useState<Member[]>(initialMembers);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Form State
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [selectedDeptId, setSelectedDeptId] = useState(departments[0]?.id || "NEW");
@@ -42,7 +46,14 @@ export function TeamDirectoryClient({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [search, setSearch] = useState("");
 
-  const filteredMembers = initialMembers.filter((m) => {
+  const isManagerOrAdmin = [
+    "ADMIN",
+    "SUPER_ADMIN",
+    "OWNER",
+    "MANAGER",
+  ].includes((currentUserRole || "").toUpperCase());
+
+  const filteredMembers = members.filter((m) => {
     const q = search.toLowerCase();
     return (
       m.name?.toLowerCase().includes(q) ||
@@ -78,6 +89,8 @@ export function TeamDirectoryClient({
       });
 
       if (res.ok) {
+        const newEmployee = await res.json();
+        setMembers((prev) => [newEmployee, ...prev]);
         setShowAddModal(false);
         setName("");
         setEmail("");
@@ -91,6 +104,32 @@ export function TeamDirectoryClient({
       alert("Network communication error");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteMember = async (memberId: string, memberName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to remove "${memberName}" from the workspace and their department channels?`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(memberId);
+    try {
+      const res = await fetch(`/api/team/${memberId}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        setMembers((prev) => prev.filter((m) => m.id !== memberId));
+        router.refresh();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Failed to delete employee");
+      }
+    } catch {
+      alert("Network error deleting employee");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -109,46 +148,68 @@ export function TeamDirectoryClient({
           <span className="absolute left-2.5 top-3 text-xs text-slate-400">🔍</span>
         </div>
 
-        <Button
-          type="button"
-          onClick={() => setShowAddModal(true)}
-          className="rounded-xl bg-purple-600 hover:bg-purple-700 text-xs font-black text-white px-5 h-10 shadow-sm cursor-pointer"
-        >
-          + Add Employee
-        </Button>
+        {isManagerOrAdmin && (
+          <Button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="rounded-xl bg-purple-600 hover:bg-purple-700 text-xs font-black text-white px-5 h-10 shadow-sm cursor-pointer"
+          >
+            + Add Employee
+          </Button>
+        )}
       </div>
 
       {/* Directory Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredMembers.map((member) => (
-          <div
-            key={member.id}
-            className="flex items-center gap-3.5 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs hover:border-purple-300 transition"
-          >
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-sm font-black text-white shadow-xs">
-              {member.name ? member.name.charAt(0).toUpperCase() : "U"}
-            </div>
-            <div className="min-w-0 flex-1">
-              <h4 className="text-xs font-black text-slate-900 truncate">
-                {member.name || member.email}
-              </h4>
-              <p className="text-[11px] text-slate-400 truncate">{member.email}</p>
-              <div className="mt-1 flex items-center gap-1.5">
-                <span className="rounded-md bg-purple-50 px-1.5 py-0.5 text-[9px] font-black uppercase text-purple-700 font-mono">
-                  {member.role?.name || "EMPLOYEE"}
-                </span>
-                {member.department && (
-                  <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">
-                    🏢 {member.department.name}
-                  </span>
-                )}
+        {filteredMembers.map((member) => {
+          const isCurrentUser = member.id === currentUserId;
+          const isDeleting = deletingId === member.id;
+
+          return (
+            <div
+              key={member.id}
+              className="flex items-center justify-between rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs hover:border-purple-300 transition"
+            >
+              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-sm font-black text-white shadow-xs">
+                  {member.name ? member.name.charAt(0).toUpperCase() : "U"}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-xs font-black text-slate-900 truncate">
+                    {member.name || member.email}
+                  </h4>
+                  <p className="text-[11px] text-slate-400 truncate">{member.email}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-md bg-purple-50 px-1.5 py-0.5 text-[9px] font-black uppercase text-purple-700 font-mono">
+                      {member.role?.name || "EMPLOYEE"}
+                    </span>
+                    {member.department && (
+                      <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-600 truncate max-w-[120px]">
+                        🏢 {member.department.name}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
+
+              {/* Delete Employee Action */}
+              {isManagerOrAdmin && !isCurrentUser && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleDeleteMember(member.id, member.name || member.email)}
+                  className="shrink-0 ml-2 rounded-xl border border-rose-200 bg-rose-50/70 p-2 text-rose-600 hover:bg-rose-100 hover:border-rose-300 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                  title="Remove Employee"
+                >
+                  {isDeleting ? "..." : "🗑️"}
+                </button>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Modal: Add Employee with Department Dropdown */}
+      {/* Modal: Add Employee */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
           <div className="w-full max-w-md rounded-[30px] border border-slate-200 bg-white p-6 shadow-2xl space-y-4">
@@ -193,7 +254,6 @@ export function TeamDirectoryClient({
                 />
               </div>
 
-              {/* Department Dropdown */}
               <div>
                 <label className="text-[11px] font-black uppercase text-slate-700">
                   Select Department (Auto-creates Group Chat)

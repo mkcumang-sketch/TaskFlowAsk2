@@ -4,60 +4,82 @@ import { prisma } from "@/lib/prisma";
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     const session = await getSession();
-    if (!session?.organizationId) {
+    // In your session type, user id is `session.id`
+    const currentUserId = session?.id;
+
+    if (!session?.organizationId || !currentUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Role check: Only Admins/Managers can revoke access
-    const role = (session.role || "").toUpperCase();
-    if (role !== "ADMIN" && role !== "SUPER_ADMIN" && role !== "OWNER") {
-      return NextResponse.json({ error: "Forbidden: Only admins can revoke access" }, { status: 403 });
+    const userRole = (session.role || "").toUpperCase();
+    const isAuthorized = ["ADMIN", "SUPER_ADMIN", "OWNER", "MANAGER"].includes(userRole);
+    if (!isAuthorized) {
+      return NextResponse.json(
+        { error: "Forbidden: Admin or Manager role required" },
+        { status: 403 }
+      );
     }
 
-    const { id: targetUserId } = await params;
+    const resolvedParams = await Promise.resolve(context.params);
+    const memberId = resolvedParams?.id;
 
-    // Prevent admin from deleting themselves
-    if (targetUserId === session.id) {
-      return NextResponse.json({ error: "You cannot revoke your own access" }, { status: 400 });
+    if (!memberId) {
+      return NextResponse.json({ error: "Member ID is required" }, { status: 400 });
     }
 
-    const targetUser = await prisma.user.findUnique({
-      where: { id: targetUserId },
-      include: { role: true },
+    if (memberId === currentUserId) {
+      return NextResponse.json(
+        { error: "You cannot delete your own account" },
+        { status: 400 }
+      );
+    }
+
+    const member = await prisma.user.findFirst({
+      where: {
+        id: memberId,
+        organizationId: session.organizationId,
+      },
     });
 
-    if (!targetUser || targetUser.organizationId !== session.organizationId) {
-      return NextResponse.json({ error: "User not found in workspace" }, { status: 404 });
+    if (!member) {
+      return NextResponse.json({ error: "Member not found" }, { status: 404 });
     }
 
-    // Prevent removing system super admins listed in .env
-    const adminEmails = (process.env.ADMIN_EMAILS || "")
-      .toLowerCase()
-      .split(",")
-      .map((e) => e.trim().replace(/^["']|["']$/g, ""))
-      .filter(Boolean);
+    // 1. Remove from all conversations
+    await prisma.conversationParticipant.deleteMany({
+      where: { userId: memberId },
+    }).catch(() => null);
 
-    if (adminEmails.includes(targetUser.email.toLowerCase())) {
-      return NextResponse.json({ error: "System super admins cannot be removed" }, { status: 400 });
+    // 2. Remove task assignments
+    await prisma.taskAssignee.deleteMany({
+      where: { userId: memberId },
+    }).catch(() => null);
+
+    // 3. Clear session records if session table exists
+    if ((prisma as any).session) {
+      await (prisma as any).session.deleteMany({
+        where: { userId: memberId },
+      }).catch(() => null);
     }
 
-    // Remove active sessions & OAuth account connections
-    await prisma.session.deleteMany({ where: { userId: targetUserId } });
-    await prisma.oAuthAccount.deleteMany({ where: { userId: targetUserId } });
-    await prisma.calendarIntegration.deleteMany({ where: { userId: targetUserId } });
-
-    // Remove the user from the organization
+    // 4. Delete user record
     await prisma.user.delete({
-      where: { id: targetUserId },
+      where: { id: memberId },
     });
 
-    return NextResponse.json({ success: true, message: "User access revoked" });
-  } catch (error) {
-    console.error("Revoke access error:", error);
-    return NextResponse.json({ error: "Failed to revoke access" }, { status: 500 });
+    return NextResponse.json(
+      { success: true, message: "Employee removed successfully" },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    console.error("Delete employee error:", error);
+    return NextResponse.json(
+      { error: error?.message || "Failed to delete employee" },
+      { status: 500 }
+    );
   }
 }
