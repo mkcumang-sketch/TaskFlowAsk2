@@ -22,13 +22,17 @@ export function NotificationBeacon() {
   useEffect(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
       if (Notification.permission === "default") {
-        Notification.requestPermission();
+        Notification.requestPermission().catch(() => {});
       }
     }
   }, []);
 
   const triggerSystemNotification = (title: string, body: string, link?: string) => {
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+    if (
+      typeof window !== "undefined" &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
       try {
         const notif = new Notification(title, {
           body,
@@ -50,7 +54,7 @@ export function NotificationBeacon() {
     const id = `${alert.type}_${Date.now()}_${Math.random()}`;
     const newAlert: PopupAlert = { ...alert, id, timestamp: Date.now() };
 
-    setAlerts((prev) => [newAlert, ...prev.slice(0, 3)]);
+    setAlerts((prev) => [newAlert, ...prev.slice(0, 2)]);
     playAlertChime(alert.type);
     triggerSystemNotification(alert.title, alert.description, alert.link);
 
@@ -70,23 +74,24 @@ export function NotificationBeacon() {
         if (!res.ok || !isMounted) return;
         const data = await res.json();
 
-        // 💬 A. Chat Message Alerts
-        if (data.recentMessages?.length > 0) {
-          data.recentMessages.forEach((m: any) => {
-            const key = `msg_${m.id}`;
+        // 💬 A. Live Notifications (Chats / System Alerts)
+        const notificationsList = data.recentNotifications || data.recentMessages || [];
+        if (notificationsList.length > 0) {
+          notificationsList.forEach((n: any) => {
+            const key = `notif_${n.id}`;
             if (!seenIds.current.has(key)) {
               seenIds.current.add(key);
               addAlert({
                 type: "MESSAGE",
-                title: `💬 New Message from ${m.sender?.name || "Team Member"}`,
-                description: m.content || "Sent an attachment",
-                link: "/inbox",
+                title: n.title || `💬 Message from ${n.sender?.name || "Team Member"}`,
+                description: n.content || "Sent an update in your workspace",
+                link: n.link || "/inbox",
               });
             }
           });
         }
 
-        // ⚡ B. New Task Assigned Alerts
+        // ⚡ B. New Task Assigned Alerts (1-Hour SLA Warning)
         if (data.pendingAssignedTasks?.length > 0) {
           data.pendingAssignedTasks.forEach((t: any) => {
             const key = `assigned_${t.id}`;
@@ -94,8 +99,8 @@ export function NotificationBeacon() {
               seenIds.current.add(key);
               addAlert({
                 type: "ASSIGNED",
-                title: `⚡ New Task Assigned [${t.priority}]`,
-                description: `"${t.title}" — Please accept within 1 hour SLA window!`,
+                title: `⚡ New Task Assigned [${t.priority || "P3"}]`,
+                description: `"${t.title}" — Please accept within the 1-hour SLA window!`,
                 link: `/tasks/${t.id}`,
               });
             }
@@ -129,14 +134,14 @@ export function NotificationBeacon() {
           if (pendingCount > 0 || activeCount > 0) {
             addAlert({
               type: "REMINDER",
-              title: `⏱️ 10-Minute Productivity Reminder`,
-              description: `You have ${pendingCount} pending acceptance and ${activeCount} active tasks running. Keep moving!`,
+              title: `⏱️ 10-Minute Focus Reminder`,
+              description: `You have ${pendingCount} task(s) awaiting acceptance and ${activeCount} running in flight.`,
               link: "/today",
             });
           }
         }
       } catch {
-        // Silently retry on next poll
+        // Silently retry on next poll interval
       }
     }
 
@@ -151,7 +156,7 @@ export function NotificationBeacon() {
   if (alerts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 sm:top-5 sm:right-6 z-[9999] flex flex-col gap-2.5 max-w-[92vw] sm:max-w-sm w-full pointer-events-none">
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-auto sm:top-5 sm:right-6 z-[9999] flex flex-col gap-2 max-w-[94vw] sm:max-w-sm w-full pointer-events-none select-none">
       {alerts.map((alert) => {
         const isOverdue = alert.type === "OVERDUE";
         const isAssigned = alert.type === "ASSIGNED";
@@ -160,27 +165,31 @@ export function NotificationBeacon() {
         return (
           <div
             key={alert.id}
-            className={`pointer-events-auto relative overflow-hidden rounded-2xl border p-4 shadow-2xl backdrop-blur-xl transition-all duration-300 animate-in slide-in-from-top-3 ${
+            className={`pointer-events-auto relative overflow-hidden rounded-2xl border p-3.5 sm:p-4 shadow-2xl backdrop-blur-2xl transition-all duration-300 animate-in slide-in-from-top-4 ${
               isOverdue
-                ? "bg-rose-950/90 border-rose-500/80 text-white ring-2 ring-rose-500/50"
+                ? "bg-rose-950/95 border-rose-500/80 text-white ring-2 ring-rose-500/50"
                 : isAssigned
-                ? "bg-slate-950/90 border-purple-500/70 text-white"
+                ? "bg-slate-950/95 border-purple-500/70 text-white ring-1 ring-purple-500/40"
                 : isMsg
-                ? "bg-slate-900/95 border-emerald-500/60 text-white"
-                : "bg-indigo-950/90 border-indigo-400/60 text-white"
+                ? "bg-slate-900/95 border-emerald-500/60 text-white ring-1 ring-emerald-500/30"
+                : "bg-indigo-950/95 border-indigo-400/60 text-white"
             }`}
           >
-            {/* Glow aura */}
+            {/* Ambient Background Glow Orb */}
             <div
               className={`absolute -right-6 -top-6 h-20 w-20 rounded-full blur-xl pointer-events-none ${
-                isOverdue ? "bg-rose-500/40" : isAssigned ? "bg-purple-500/30" : "bg-emerald-500/30"
+                isOverdue
+                  ? "bg-rose-500/40"
+                  : isAssigned
+                  ? "bg-purple-500/30"
+                  : "bg-emerald-500/30"
               }`}
             />
 
             <div className="relative z-10 flex items-start justify-between gap-2.5">
               <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full animate-ping bg-current" />
+                  <span className="h-2 w-2 rounded-full animate-ping bg-current shrink-0" />
                   <h4 className="text-xs font-black tracking-tight leading-tight truncate">
                     {alert.title}
                   </h4>
@@ -192,10 +201,12 @@ export function NotificationBeacon() {
                 {alert.link && (
                   <Link
                     href={alert.link}
-                    onClick={() => setAlerts((prev) => prev.filter((a) => a.id !== alert.id))}
+                    onClick={() =>
+                      setAlerts((prev) => prev.filter((a) => a.id !== alert.id))
+                    }
                     className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-purple-300 hover:text-white pt-1 tracking-wider"
                   >
-                    <span>View Details</span>
+                    <span>Open Details</span>
                     <span>→</span>
                   </Link>
                 )}
@@ -203,8 +214,11 @@ export function NotificationBeacon() {
 
               <button
                 type="button"
-                onClick={() => setAlerts((prev) => prev.filter((a) => a.id !== alert.id))}
+                onClick={() =>
+                  setAlerts((prev) => prev.filter((a) => a.id !== alert.id))
+                }
                 className="text-slate-400 hover:text-white text-xs font-bold p-1 cursor-pointer shrink-0"
+                aria-label="Dismiss alert"
               >
                 ✕
               </button>
