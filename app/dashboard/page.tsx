@@ -6,16 +6,38 @@ import { DashboardClient } from "@/components/dashboard/dashboard-client";
 export default async function DashboardPage() {
   const user = await requireUser();
   const organizationId = user.organizationId!;
-
   const now = new Date();
 
-  // Parallel database fetch for tasks, members, departments, and logs
+  // Current user ka departmentId database se fetch karein
+  const currentUserRecord = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { departmentId: true },
+  });
+  const userDepartmentId = currentUserRecord?.departmentId ?? null;
+
+  const userRoleString: string =
+    typeof user.role === "string"
+      ? user.role
+      : (user.role as any)?.name || "EMPLOYEE";
+
+  const isManagerOrAdmin = ["ADMIN", "SUPER_ADMIN", "OWNER", "MANAGER"].includes(
+    userRoleString.toUpperCase()
+  );
+
+  // Tasks Filter: Manager sees all; Employee sees only their assigned tasks
+  const taskWhereClause: any = {
+    organizationId,
+    status: { notIn: ["ARCHIVED"] },
+  };
+
+  if (!isManagerOrAdmin) {
+    taskWhereClause.assignees = { some: { userId: user.id } };
+  }
+
+  // Parallel database queries
   const [tasks, teamMembers, departments, recentActivity] = await Promise.all([
     prisma.task.findMany({
-      where: {
-        organizationId,
-        status: { notIn: ["ARCHIVED"] },
-      },
+      where: taskWhereClause,
       include: {
         project: { select: { id: true, name: true } },
         department: { select: { id: true, name: true } },
@@ -31,7 +53,10 @@ export default async function DashboardPage() {
     }),
 
     prisma.user.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(!isManagerOrAdmin ? { id: user.id } : {}),
+      },
       select: {
         id: true,
         name: true,
@@ -58,14 +83,20 @@ export default async function DashboardPage() {
     }),
 
     prisma.department.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(!isManagerOrAdmin && userDepartmentId ? { id: userDepartmentId } : {}),
+      },
       include: {
         _count: { select: { tasks: true, users: true } },
       },
     }),
 
     prisma.activityLog.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(!isManagerOrAdmin ? { userId: user.id } : {}),
+      },
       take: 8,
       orderBy: { createdAt: "desc" },
       include: {
@@ -75,7 +106,6 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  // Aggregate Real KPI Metrics
   const totalTasks = tasks.length;
   const inProgressTasks = tasks.filter((t) => t.status === "IN_PROGRESS").length;
   const reviewTasks = tasks.filter((t) => t.status === "REVIEW").length;
@@ -93,7 +123,6 @@ export default async function DashboardPage() {
   const completionRate =
     totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  // Individual Employee KPI Score Computation
   const employeeKPIs = teamMembers.map((member) => {
     const assigned = member.taskAssignments.map((a) => a.task);
     const total = assigned.length;
@@ -107,7 +136,6 @@ export default async function DashboardPage() {
         !["COMPLETED", "APPROVED"].includes(t.status)
     ).length;
 
-    // Score out of 100: baseline 100 - (overdue penalty * 15) + (completion ratio * 40)
     let score = 75;
     if (total > 0) {
       score = Math.min(
@@ -130,15 +158,14 @@ export default async function DashboardPage() {
     };
   });
 
-  const userRoleString: string =
-    typeof user.role === "string"
-      ? user.role
-      : (user.role as any)?.name || "EMPLOYEE";
-
   return (
     <AppShell
       title="Strategic Command Center"
-      subtitle="Executive Intelligence, Real-time Team KPIs, and Rapid Operations."
+      subtitle={
+        isManagerOrAdmin
+          ? "Executive Intelligence, Real-time Team KPIs, and Rapid Operations."
+          : "Personal Task Stream, SLA Performance, and Real-time Activity."
+      }
       userRole={userRoleString}
     >
       <DashboardClient

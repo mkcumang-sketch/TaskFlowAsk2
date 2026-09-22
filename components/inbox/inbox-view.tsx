@@ -84,11 +84,10 @@ export function InboxView({
   const chatItems = useMemo(() => {
     const list: ChatItem[] = [];
 
-    // 1. Groups & Department Rooms (Deduplicated by normalized name & departmentId)
+    // 1. Groups & Department Rooms (Deduplicated)
     if (activeTab === "ALL" || activeTab === "GROUPS") {
       const seenGroupKeys = new Set<string>();
 
-      // Sort channels so the one with the latest activity comes first
       const sortedChannels = [...initialChannels].sort((a, b) => {
         const timeA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
         const timeB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
@@ -97,13 +96,12 @@ export function InboxView({
 
       sortedChannels.forEach((ch) => {
         const groupName = (ch.name || (ch.department ? `${ch.department.name} Team` : "Group Chat")).trim();
-        // Unique key using departmentId if available, otherwise normalized name
         const uniqueKey = ch.departmentId 
           ? `dept_${ch.departmentId}` 
           : `name_${groupName.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
 
         if (seenGroupKeys.has(uniqueKey)) {
-          return; // Skip duplicate group entry
+          return;
         }
         seenGroupKeys.add(uniqueKey);
 
@@ -123,7 +121,7 @@ export function InboxView({
       });
     }
 
-    // 2. Direct Messages (1:1) (Deduplicated by userId)
+    // 2. Direct Messages (1:1) (Deduplicated)
     if (activeTab === "ALL" || activeTab === "DIRECT") {
       const seenUserIds = new Set<string>();
 
@@ -205,7 +203,7 @@ export function InboxView({
     }
   }, [messages]);
 
-  // Send message
+  // ✅ Send message with ANY Document Support (PDF, DOCX, XLSX, TXT, ZIP)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!inputMessage.trim() && !selectedFile) || isSending || !selectedChat) return;
@@ -213,16 +211,22 @@ export function InboxView({
     setIsSending(true);
     try {
       let uploadedUrl: string | null = null;
-      let uploadedName: string | null = null;
+      let uploadedName: string | null = selectedFile ? selectedFile.name : null;
 
       if (selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
+
         const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
         if (uploadRes.ok) {
           const uploadData = await uploadRes.json();
           uploadedUrl = uploadData.url;
-          uploadedName = uploadData.fileName;
+          uploadedName = uploadData.fileName || selectedFile.name;
+        } else {
+          const err = await uploadRes.json().catch(() => ({}));
+          alert(err.error || "Document upload fail ho gaya. Kripya dobara try karein.");
+          setIsSending(false);
+          return;
         }
       }
 
@@ -250,7 +254,13 @@ export function InboxView({
         setInputMessage("");
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.error || "Message send nahi ho saka.");
       }
+    } catch (err) {
+      console.error(err);
+      alert("Network error: Message deliver nahi hua.");
     } finally {
       setIsSending(false);
     }
@@ -261,12 +271,24 @@ export function InboxView({
     setMobileChatOpen(true);
   };
 
+  // Helper: File type icon
+  const getFileIcon = (fileName?: string | null) => {
+    if (!fileName) return "📄";
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    if (ext === "pdf") return "📕";
+    if (["doc", "docx"].includes(ext || "")) return "📘";
+    if (["xls", "xlsx", "csv"].includes(ext || "")) return "📊";
+    if (["zip", "rar", "7z"].includes(ext || "")) return "📦";
+    if (["txt", "rtf"].includes(ext || "")) return "📝";
+    return "📎";
+  };
+
   return (
     <div
       style={{ height: "calc(100vh - 150px)", minHeight: "520px" }}
       className="relative flex w-full overflow-hidden rounded-2xl md:rounded-[28px] border border-slate-200/90 bg-white shadow-xl select-none"
     >
-      {/* 🟢 VIEW 1: Left Chat List */}
+      {/* 🟢 VIEW 1: WhatsApp / Telegram Left Chat List */}
       <div
         className={`w-full md:w-88 lg:w-96 flex flex-col border-r border-slate-200/80 bg-white shrink-0 ${
           mobileChatOpen ? "hidden md:flex" : "flex"
@@ -323,7 +345,7 @@ export function InboxView({
           </div>
         </div>
 
-        {/* Clean Chat Item List */}
+        {/* Clean WhatsApp Style Chat Item List */}
         <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 custom-kanban-scroll">
           {chatItems.length === 0 ? (
             <div className="p-12 text-center text-xs font-bold text-slate-400">
@@ -441,11 +463,12 @@ export function InboxView({
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs font-bold text-center px-4">
                   <span className="text-3xl mb-1">💬</span>
-                  No messages yet. Send a greeting to start the thread!
+                  No messages yet. Send a greeting or share a document below!
                 </div>
               ) : (
                 messages.map((m) => {
                   const isMe = m.sender.id === currentUserId;
+                  const isImage = m.mediaUrl && (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(m.mediaUrl) || m.mediaUrl.startsWith("data:image/"));
 
                   return (
                     <div
@@ -459,7 +482,7 @@ export function InboxView({
                       )}
 
                       <div
-                        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 text-xs shadow-xs relative ${
+                        className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 text-xs shadow-xs relative ${
                           isMe
                             ? "bg-purple-600 text-white rounded-br-xs"
                             : "bg-white text-slate-900 border border-slate-200/80 rounded-bl-xs"
@@ -467,34 +490,47 @@ export function InboxView({
                       >
                         {m.content && <p className="leading-relaxed whitespace-pre-wrap">{m.content}</p>}
 
+                        {/* ✅ Media & Any Document Rendering */}
                         {m.mediaUrl && (
                           <div className="mt-2">
-                            {/\.(jpg|jpeg|png|webp|gif)$/i.test(m.mediaUrl) ? (
+                            {isImage ? (
                               <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer">
                                 <img
                                   src={m.mediaUrl}
                                   alt="attachment"
-                                  className="max-h-52 max-w-full rounded-xl object-cover"
+                                  className="max-h-56 max-w-full rounded-xl object-cover hover:opacity-95 transition"
                                 />
                               </a>
                             ) : (
+                              /* Non-image Documents: PDF, Word, Excel, ZIP, etc. */
                               <a
                                 href={m.mediaUrl}
+                                download={m.mediaName || "document"}
                                 target="_blank"
-                                rel="noreferrer"
-                                className={`flex items-center gap-2 p-2 rounded-xl text-[11px] font-bold ${
-                                  isMe ? "bg-white/20 text-white" : "bg-slate-100 text-slate-800"
+                                rel="noopener noreferrer"
+                                className={`flex items-center gap-3 p-2.5 rounded-xl text-xs font-bold transition shadow-xs ${
+                                  isMe
+                                    ? "bg-white/20 text-white hover:bg-white/30"
+                                    : "bg-slate-100 text-slate-900 hover:bg-slate-200 border border-slate-200"
                                 }`}
                               >
-                                <span>📎</span>
-                                <span className="truncate">{m.mediaName || "Attached Deliverable"}</span>
+                                <span className="text-xl shrink-0">{getFileIcon(m.mediaName)}</span>
+                                <div className="flex flex-col min-w-0 flex-1">
+                                  <span className="truncate max-w-[190px] sm:max-w-xs font-bold text-[11px]">
+                                    {m.mediaName || "Download Attachment"}
+                                  </span>
+                                  <span className={`text-[9px] font-mono ${isMe ? "text-purple-200" : "text-slate-400"}`}>
+                                    Click to Download
+                                  </span>
+                                </div>
+                                <span className="text-sm shrink-0">⬇️</span>
                               </a>
                             )}
                           </div>
                         )}
 
                         <span
-                          className={`text-[9px] font-mono block text-right mt-1 ${
+                          className={`text-[9px] font-mono block text-right mt-1.5 ${
                             isMe ? "text-purple-200" : "text-slate-400"
                           }`}
                         >
@@ -512,16 +548,25 @@ export function InboxView({
 
             {/* Bottom Input Field */}
             <div className="p-2.5 sm:p-3 border-t border-slate-200/80 bg-white shrink-0">
+              {/* Ready Document Badge */}
               {selectedFile && (
-                <div className="flex items-center justify-between bg-purple-50 border border-purple-200 px-3 py-1 rounded-xl text-xs text-purple-900 mb-2">
-                  <span className="truncate max-w-[200px] sm:max-w-xs font-bold">📎 {selectedFile.name}</span>
+                <div className="flex items-center justify-between bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-xl text-xs text-purple-900 mb-2">
+                  <div className="flex items-center gap-2 truncate">
+                    <span>{getFileIcon(selectedFile.name)}</span>
+                    <span className="truncate max-w-[200px] sm:max-w-xs font-bold">
+                      {selectedFile.name}
+                    </span>
+                    <span className="text-[10px] text-purple-500 font-mono">
+                      ({(selectedFile.size / 1024).toFixed(0)} KB)
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedFile(null);
                       if (fileInputRef.current) fileInputRef.current.value = "";
                     }}
-                    className="font-black text-purple-700 cursor-pointer"
+                    className="font-black text-purple-700 cursor-pointer ml-2 hover:text-purple-900"
                   >
                     ✕
                   </button>
@@ -529,10 +574,12 @@ export function InboxView({
               )}
 
               <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                {/* Accept All Files: PDF, DOC, XLS, TXT, ZIP, Images */}
                 <input
                   type="file"
                   ref={fileInputRef}
                   className="hidden"
+                  accept="*/*"
                   onChange={(e) => {
                     if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
                   }}
@@ -542,14 +589,14 @@ export function InboxView({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="h-10 w-10 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-500 text-lg transition cursor-pointer shrink-0"
-                  title="Attach file"
+                  title="Attach any document or media"
                 >
                   📎
                 </button>
 
                 <input
                   type="text"
-                  placeholder="Type a message..."
+                  placeholder="Type a message or attach a doc..."
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   className="flex-1 h-10 rounded-full border border-slate-200 bg-slate-50 px-4 text-xs font-semibold text-slate-800 outline-none focus:border-purple-600 focus:bg-white transition"
@@ -557,10 +604,10 @@ export function InboxView({
 
                 <Button
                   type="submit"
-                  disabled={!inputMessage.trim() && !selectedFile}
-                  className="h-10 w-10 rounded-full bg-purple-600 hover:bg-purple-700 text-white p-0 flex items-center justify-center cursor-pointer shadow-sm transition shrink-0"
+                  disabled={isSending || (!inputMessage.trim() && !selectedFile)}
+                  className="h-10 w-10 rounded-full bg-purple-600 hover:bg-purple-700 text-white p-0 flex items-center justify-center cursor-pointer shadow-sm transition shrink-0 disabled:opacity-50"
                 >
-                  ➤
+                  {isSending ? "..." : "➤"}
                 </Button>
               </form>
             </div>

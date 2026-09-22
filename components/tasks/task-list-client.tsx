@@ -1,3 +1,4 @@
+// File: components/tasks/task-list-client.tsx (Replace complete component)
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
@@ -31,11 +32,12 @@ interface TaskItem {
   priority: string;
   dueAt?: string | Date | null;
   startAt?: string | Date | null;
+  createdAt?: string | Date | null;
   projectId?: string | null;
   project?: ProjectItem | null;
   departmentId?: string | null;
   department?: DepartmentItem | null;
-  assignees: Array<{ user: UserItem }>;
+  assignees: Array<{ user: UserItem; userId?: string }>;
   subtasks: Array<{ id: string; title: string; completed: boolean }>;
 }
 
@@ -85,11 +87,10 @@ export function TaskListClient({
   const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<"KANBAN" | "LIST">("KANBAN");
 
-  // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitTaskTarget, setSubmitTaskTarget] = useState<TaskItem | null>(null);
+  const [holdTaskTarget, setHoldTaskTarget] = useState<TaskItem | null>(null);
 
-  // Form State: Add Task
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
@@ -98,11 +99,12 @@ export function TaskListClient({
   const [newPriority, setNewPriority] = useState("P3");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Deliverable Submission Form State
   const [responseNote, setResponseNote] = useState("");
   const [isDelivering, setIsDelivering] = useState(false);
 
-  // Filters
+  const [holdReason, setHoldReason] = useState("");
+  const [isHolding, setIsHolding] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [projectFilter, setProjectFilter] = useState("ALL");
@@ -111,7 +113,6 @@ export function TaskListClient({
     setMounted(true);
   }, []);
 
-  // Filter Tasks
   const filteredTasks = useMemo(() => {
     return initialTasks.filter((task) => {
       if (priorityFilter !== "ALL" && task.priority !== priorityFilter) return false;
@@ -137,11 +138,9 @@ export function TaskListClient({
   const handleDepartmentChange = (deptId: string) => {
     setSelectedDepartmentId(deptId);
     if (!deptId) return;
-
     const deptMemberIds = teamMembers
       .filter((m) => m.departmentId === deptId)
       .map((m) => m.id);
-
     setSelectedAssigneeIds((prev) => Array.from(new Set([...prev, ...deptMemberIds])));
   };
 
@@ -175,7 +174,7 @@ export function TaskListClient({
         router.refresh();
       } else {
         const err = await res.json();
-        alert(err.error || "Failed to assign task");
+        alert(err.error || "Task create nahi ho saka.");
       }
     } catch {
       alert("Network error creating task");
@@ -184,16 +183,49 @@ export function TaskListClient({
     }
   };
 
-  const handleStartWork = async (taskId: string) => {
+  const handleAcceptTask = async (taskId: string) => {
     try {
       const res = await fetch(`/api/tasks/${taskId}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "START_WORK" }),
+        body: JSON.stringify({ action: "ACCEPT_TASK" }),
       });
-      if (res.ok) router.refresh();
+      if (res.ok) {
+        router.refresh();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Task accept nahi ho saka.");
+      }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleHoldTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!holdTaskTarget || !holdReason.trim() || isHolding) return;
+    setIsHolding(true);
+
+    try {
+      const res = await fetch(`/api/tasks/${holdTaskTarget.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "HOLD_TASK",
+          holdReason: holdReason.trim(),
+        }),
+      });
+
+      if (res.ok) {
+        setHoldTaskTarget(null);
+        setHoldReason("");
+        router.refresh();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Task hold nahi ho saka.");
+      }
+    } finally {
+      setIsHolding(false);
     }
   };
 
@@ -229,9 +261,7 @@ export function TaskListClient({
 
   return (
     <div className="w-full space-y-4 md:space-y-6 font-sans select-none overflow-hidden">
-      {/* 🧭 Top High-Contrast Control Toolbar */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 md:gap-4 rounded-2xl md:rounded-[26px] border border-slate-200/90 bg-white p-3 md:p-3.5 shadow-sm">
-        {/* Left: View Switcher */}
         <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200/80 w-full sm:w-fit justify-between sm:justify-start">
           <button
             type="button"
@@ -257,9 +287,7 @@ export function TaskListClient({
           </button>
         </div>
 
-        {/* Right: Search, Project, Priority & Action */}
         <div className="flex flex-wrap items-center gap-2 md:gap-2.5">
-          {/* Project Filter */}
           <select
             value={projectFilter}
             onChange={(e) => setProjectFilter(e.target.value)}
@@ -271,7 +299,6 @@ export function TaskListClient({
             ))}
           </select>
 
-          {/* Priority Filter */}
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
@@ -285,7 +312,6 @@ export function TaskListClient({
             <option value="P5">P5 • 48h</option>
           </select>
 
-          {/* Search Box */}
           <div className="relative w-full sm:w-52 md:w-60">
             <input
               type="text"
@@ -297,7 +323,6 @@ export function TaskListClient({
             <span className="absolute right-2.5 top-2.5 text-xs text-slate-400">🔍</span>
           </div>
 
-          {/* Launch Modal Button */}
           <Button
             type="button"
             onClick={() => setShowCreateModal(true)}
@@ -308,7 +333,6 @@ export function TaskListClient({
         </div>
       </div>
 
-      {/* ▦ KANBAN BOARD VIEW (Mobile Friendly Touch Scroll + Fixed Length Columns) */}
       {viewMode === "KANBAN" ? (
         <div className="flex gap-4 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory xl:grid xl:grid-cols-4 xl:overflow-visible custom-kanban-scroll">
           {KANBAN_COLUMNS.map((col) => {
@@ -322,7 +346,6 @@ export function TaskListClient({
                 key={col.id}
                 className={`w-[85vw] sm:w-[320px] md:w-[340px] xl:w-auto shrink-0 snap-center flex flex-col rounded-2xl md:rounded-[26px] border border-slate-200/90 bg-slate-50/80 p-3.5 shadow-sm border-t-4 ${col.borderTop} h-[calc(100vh-250px)] min-h-[480px] max-h-[720px]`}
               >
-                {/* Column Header */}
                 <div className="flex items-center justify-between pb-2.5 border-b border-slate-200/70 px-1 shrink-0">
                   <div className="flex items-center gap-2">
                     <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
@@ -335,7 +358,6 @@ export function TaskListClient({
                   </span>
                 </div>
 
-                {/* Column Tasks Container (Fixed Length + Custom Scrollbar) */}
                 <div className="mt-3 space-y-3 flex-1 min-h-0 overflow-y-auto pr-1.5 custom-kanban-scroll">
                   {columnTasks.length === 0 ? (
                     <div className="flex h-44 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/60 p-4 text-center">
@@ -351,7 +373,9 @@ export function TaskListClient({
                         badge: "bg-slate-100 text-slate-700 border-slate-200",
                       };
                       const remaining = getRemainingTime(task.dueAt);
-                      const isAssignedToMe = task.assignees?.some((a: any) => a.user?.id === currentUserId);
+                      const isAssignedToMe = task.assignees?.some(
+                        (a: any) => a.userId === currentUserId || a.user?.id === currentUserId
+                      );
 
                       return (
                         <div
@@ -373,12 +397,11 @@ export function TaskListClient({
                           </div>
 
                           {task.description && (
-                            <p className="text-[11px] font-medium text-slate-500 line-clamp-2 leading-relaxed">
+                            <p className="text-[11px] font-medium text-slate-500 line-clamp-2 leading-relaxed whitespace-pre-line">
                               {task.description}
                             </p>
                           )}
 
-                          {/* Meta Tags: Department & Project */}
                           {(task.project || task.department) && (
                             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                               {task.project && (
@@ -394,26 +417,20 @@ export function TaskListClient({
                             </div>
                           )}
 
-                          {/* Assignees Avatars & SLA Time */}
                           <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                             <div className="flex items-center -space-x-1.5 overflow-hidden">
-                              {task.assignees?.slice(0, 3).map((assignee: any, idx: number) => (
-                                <div
-                                  key={idx}
-                                  title={assignee.user.name || assignee.user.email}
-                                  className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-tr from-purple-600 to-indigo-600 text-[10px] font-black text-white ring-2 ring-white shadow-xs"
-                                >
-                                  {assignee.user.name?.charAt(0).toUpperCase() || "U"}
-                                </div>
-                              ))}
-                              {task.assignees?.length > 3 && (
-                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-[9px] font-black text-slate-700 ring-2 ring-white">
-                                  +{task.assignees.length - 3}
-                                </div>
-                              )}
-                              {task.assignees?.length === 0 && (
-                                <span className="text-[10px] font-bold text-slate-400">Unassigned</span>
-                              )}
+                              {task.assignees?.slice(0, 3).map((assignee: any, idx: number) => {
+                                const uName = assignee.user?.name || assignee.user?.email || "U";
+                                return (
+                                  <div
+                                    key={idx}
+                                    title={uName}
+                                    className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-tr from-purple-600 to-indigo-600 text-[10px] font-black text-white ring-2 ring-white shadow-xs"
+                                  >
+                                    {uName.charAt(0).toUpperCase()}
+                                  </div>
+                                );
+                              })}
                             </div>
 
                             <span
@@ -426,24 +443,40 @@ export function TaskListClient({
                             </span>
                           </div>
 
-                          {/* Quick Interactive Actions */}
-                          <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-100">
-                            {task.status === "ASSIGNED" && isAssignedToMe && (
+                          {/* ACTION BUTTONS */}
+                          <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1 border-t border-slate-100">
+                            {/* 1. Accept Task (Assigned / Backlog) */}
+                            {(task.status === "ASSIGNED" || task.status === "DRAFT") && isAssignedToMe && (
                               <button
                                 type="button"
-                                onClick={() => handleStartWork(task.id)}
-                                className="flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                                onClick={() => handleAcceptTask(task.id)}
+                                className="flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 text-[10px] font-black text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                                title="Accept within 1 hour SLA"
                               >
-                                <span>▶</span>
-                                <span>Start</span>
+                                <span>⚡</span>
+                                <span>Accept</span>
                               </button>
                             )}
 
+                            {/* 2. Hold / Carry Forward (In Progress) */}
+                            {task.status === "IN_PROGRESS" && isAssignedToMe && (
+                              <button
+                                type="button"
+                                onClick={() => setHoldTaskTarget(task)}
+                                className="flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-[10px] font-black text-amber-700 hover:bg-amber-100 transition cursor-pointer"
+                                title="Hold for urgent P1 task"
+                              >
+                                <span>⏸️</span>
+                                <span>Hold / Preempt</span>
+                              </button>
+                            )}
+
+                            {/* 3. Submit Deliverable (In Progress) */}
                             {task.status === "IN_PROGRESS" && isAssignedToMe && (
                               <button
                                 type="button"
                                 onClick={() => setSubmitTaskTarget(task)}
-                                className="flex items-center gap-1 rounded-lg bg-purple-50 border border-purple-200 px-2 py-1 text-[10px] font-extrabold text-purple-700 hover:bg-purple-100 transition cursor-pointer"
+                                className="flex items-center gap-1 rounded-lg bg-purple-50 border border-purple-200 px-2 py-1 text-[10px] font-black text-purple-700 hover:bg-purple-100 transition cursor-pointer"
                               >
                                 <span>📤</span>
                                 <span>Submit</span>
@@ -469,7 +502,6 @@ export function TaskListClient({
           })}
         </div>
       ) : (
-        /* ☰ TABLE LIST VIEW */
         <div className="overflow-hidden rounded-2xl md:rounded-[26px] border border-slate-200/90 bg-white shadow-sm divide-y divide-slate-100">
           {filteredTasks.length === 0 ? (
             <div className="p-12 text-center text-xs font-bold text-slate-400">
@@ -507,7 +539,7 @@ export function TaskListClient({
         </div>
       )}
 
-      {/* 🚀 MODAL: ASSIGN TASK */}
+      {/* CREATE MODAL */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-3 md:p-4">
           <div className="relative w-full max-w-xl overflow-hidden rounded-2xl md:rounded-[30px] border border-slate-200 bg-white p-5 md:p-7 shadow-2xl space-y-4 md:space-y-5 text-slate-900 max-h-[92vh] overflow-y-auto custom-kanban-scroll">
@@ -583,7 +615,6 @@ export function TaskListClient({
                 </div>
               </div>
 
-              {/* Multi-Assign Checkbox List */}
               <div>
                 <div className="flex items-center justify-between pb-1">
                   <label className="text-[11px] font-black uppercase tracking-wider text-slate-700">
@@ -624,7 +655,6 @@ export function TaskListClient({
                 </div>
               </div>
 
-              {/* Priority Selection */}
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-700">Priority SLA Window</label>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1.5">
@@ -668,7 +698,51 @@ export function TaskListClient({
         </div>
       )}
 
-      {/* 📤 MODAL: SUBMIT DELIVERABLE */}
+      {/* HOLD / CARRY FORWARD MODAL */}
+      {holdTaskTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-3 md:p-4">
+          <div className="relative w-full max-w-md rounded-2xl md:rounded-[28px] border border-slate-200 bg-white p-5 md:p-6 shadow-2xl space-y-4 text-slate-900">
+            <h3 className="text-lg font-black">Hold / Carry Forward Task</h3>
+            <p className="text-xs text-slate-500">
+              Task: <strong className="text-slate-800">{holdTaskTarget.title}</strong>
+            </p>
+
+            <form onSubmit={handleHoldTask} className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-black uppercase text-slate-700">Preemption Reason *</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. Received urgent P1 client deliverable. Putting this P3 task on hold..."
+                  value={holdReason}
+                  onChange={(e) => setHoldReason(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs text-slate-900 placeholder-slate-400 outline-none focus:border-amber-600 focus:bg-white transition"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setHoldTaskTarget(null)}
+                  className="rounded-xl border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isHolding}
+                  className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black px-4 cursor-pointer"
+                >
+                  {isHolding ? "Holding..." : "Confirm Hold"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SUBMIT DELIVERABLE MODAL */}
       {submitTaskTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-3 md:p-4">
           <div className="relative w-full max-w-md rounded-2xl md:rounded-[28px] border border-slate-200 bg-white p-5 md:p-6 shadow-2xl space-y-4 text-slate-900">

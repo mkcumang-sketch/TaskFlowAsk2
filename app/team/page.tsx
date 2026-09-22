@@ -7,9 +7,29 @@ export default async function TeamPage() {
   const user = await requireUser();
   const organizationId = user.organizationId!;
 
+  // Current user ka departmentId database se retrieve karein
+  const currentUserRecord = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { departmentId: true },
+  });
+  const userDepartmentId = currentUserRecord?.departmentId ?? null;
+
+  const userRoleString: string =
+    typeof user.role === "string"
+      ? user.role
+      : (user.role as any)?.name || "EMPLOYEE";
+
+  const isManagerOrAdmin = ["ADMIN", "SUPER_ADMIN", "OWNER", "MANAGER"].includes(
+    userRoleString.toUpperCase()
+  );
+
+  // Employee ko sirf apna department dikhega, manager/admin ko sabhi
   const [members, departments] = await Promise.all([
     prisma.user.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(!isManagerOrAdmin && userDepartmentId ? { departmentId: userDepartmentId } : {}),
+      },
       include: {
         role: { select: { name: true } },
         department: { select: { id: true, name: true } },
@@ -18,16 +38,14 @@ export default async function TeamPage() {
       orderBy: { name: "asc" },
     }),
     prisma.department.findMany({
-      where: { organizationId },
+      where: {
+        organizationId,
+        ...(!isManagerOrAdmin && userDepartmentId ? { id: userDepartmentId } : {}),
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
   ]);
-
-  const userRoleString: string =
-    typeof user.role === "string"
-      ? user.role
-      : (user.role as any)?.name || "EMPLOYEE";
 
   return (
     <AppShell
